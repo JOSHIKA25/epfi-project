@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IndustrialTwin AI - Tennessee Eastman Digital Twin & Predictive Maintenance</title>
+    <meta name="description" content="Production-grade AI-powered Industrial Digital Twin for the Tennessee Eastman Process (TEP) with multi-agent predictive maintenance, autoencoder anomaly detection, XGBoost/GRU future-fault prediction, SHAP/XAI, Neo4j Knowledge Graph, RAG engineering docs, and Gemini reasoning." />
+    <meta property="og:title" content="IndustrialTwin AI - Tennessee Eastman Digital Twin & Predictive Maintenance" />
+    <meta property="og:description" content="Production-grade AI-powered Industrial Digital Twin for the Tennessee Eastman Process (TEP) with multi-agent predictive maintenance, autoencoder anomaly detection, XGBoost/GRU future-fault prediction, SHAP/XAI, Neo4j Knowledge Graph, RAG engineering docs, and Gemini reasoning." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function() {
+        // Robust global guard against benign WebSocket disconnects/closures in cloud container iframe/preview proxies.
+        // Prevents Vite HMR / WebSocket close events from triggering unhandled rejections or halting app initialization.
+        function isWebSocketIssue(err) {
+          if (!err) return false;
+          
+          // Check for CloseEvent / ErrorEvent from WebSocket
+          if (typeof CloseEvent !== 'undefined' && err instanceof CloseEvent) return true;
+          if (err.target && (err.target instanceof WebSocket || (err.target.constructor && err.target.constructor.name === 'WebSocket'))) {
+            return true;
+          }
+
+          var text = '';
+          if (typeof err === 'string') {
+            text = err;
+          } else {
+            text = (err.message || '') + ' ' + (err.name || '') + ' ' + (err.stack || '');
+            if (err.reason) {
+              text += ' ' + (typeof err.reason === 'string' ? err.reason : (err.reason.message || ''));
+            }
+          }
+
+          var normalized = text.toLowerCase();
+          return (
+            normalized.includes('websocket closed') ||
+            normalized.includes('websocket closed without opened') ||
+            normalized.includes('websocket connection') ||
+            normalized.includes('failed to construct \'websocket\'') ||
+            normalized.includes('vite') && normalized.includes('ws') ||
+            (normalized.includes('connection refused') && normalized.includes('ws'))
+          );
+        }
+
+        window.addEventListener('unhandledrejection', function(event) {
+          if (isWebSocketIssue(event.reason) || isWebSocketIssue(event)) {
+            event.preventDefault();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            if (event.stopPropagation) event.stopPropagation();
+            return false;
+          }
+        }, true);
+
+        window.addEventListener('error', function(event) {
+          if (isWebSocketIssue(event.error) || isWebSocketIssue(event.message) || isWebSocketIssue(event)) {
+            event.preventDefault();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            if (event.stopPropagation) event.stopPropagation();
+            return false;
+          }
+        }, true);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

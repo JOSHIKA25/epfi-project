@@ -35,7 +35,7 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
     {
       role: 'assistant',
       content:
-        'Hello, Engineer. I am your Tennessee Eastman Process (TEP) AI Reasoning Copilot, connected to live telemetry, Autoencoder anomaly residuals, XGBoost failure predictions, SHAP explanations, the Neo4j Knowledge Graph, and the RAG engineering manual.\n\nHow can I assist your plant operations or predictive maintenance right now?',
+        'Hello, Engineer. I am your Tennessee Eastman Process (TEP) AI Copilot, connected to live telemetry, prototype heuristic fault scores, sensor-attribution summaries, process-graph context, and the bundled engineering-document corpus. Fault scores are unvalidated and are not operational advice.\n\nHow can I assist with your plant operations or maintenance review?',
       timestamp: Date.now(),
     },
   ]);
@@ -88,7 +88,7 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
 
   const samplePrompts = [
     'Diagnose current plant anomaly',
-    'Explain SHAP drivers for predicted fault',
+    'Explain the heuristic sensor attributions',
     'What SOP should I follow for IDV-4?',
     'Check reactor MAWP safety limits',
     'Draft maintenance work order',
@@ -230,7 +230,7 @@ export const GeminiCopilotDrawer: React.FC<GeminiCopilotDrawerProps> = ({
       <div className="p-3 border-t border-slate-800 bg-slate-950 flex items-center gap-2">
         <input
           type="text"
-          placeholder="Ask Gemini about live sensors, predictions, SHAP, or SOPs..."
+          placeholder="Ask Gemini about live sensors, prototype fault scores, or SOPs..."
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}

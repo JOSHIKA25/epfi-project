@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Sliders,
   Search,
@@ -14,12 +14,14 @@ interface TelemetryMatrixProps {
   variables: TEPVariable[];
   telemetry: TelemetryPoint | null;
   onSetActuator: (actuatorId: string, value: number) => void;
+  selectedVariableId?: string | null;
 }
 
 export const TelemetryMatrix: React.FC<TelemetryMatrixProps> = ({
   variables,
   telemetry,
   onSetActuator,
+  selectedVariableId,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [unitFilter, setUnitFilter] = useState<string>('all');
@@ -28,6 +30,16 @@ export const TelemetryMatrix: React.FC<TelemetryMatrixProps> = ({
 
   const values = telemetry?.values || {};
   const alarms = telemetry?.alarms || {};
+
+  useEffect(() => {
+    if (!selectedVariableId) return;
+    const selectedVariable = variables.find((variable) => variable.id === selectedVariableId);
+    if (!selectedVariable) return;
+    setSearchTerm(selectedVariable.code);
+    setUnitFilter('all');
+    setTypeFilter('all');
+    setAlarmsOnly(false);
+  }, [selectedVariableId, variables]);
 
   const filtered = variables.filter((v) => {
     // Search
@@ -151,6 +163,7 @@ export const TelemetryMatrix: React.FC<TelemetryMatrixProps> = ({
                 <tr
                   key={v.id}
                   className={`hover:bg-slate-800/60 transition ${
+                    v.id === selectedVariableId ? 'ring-1 ring-inset ring-cyan-500 bg-cyan-950/20' :
                     isTrip
                       ? 'bg-rose-950/20'
                       : isAlarm

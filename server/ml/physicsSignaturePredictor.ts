@@ -1,51 +1,33 @@
 /**
- * Failure Prediction Agent - XGBoost Multi-Class Fault Classifier & GRU Temporal Comparison
- * Predicts upcoming fault class (IDV 1..21 or Normal) from rolling historical sensor window.
- * Computes:
- * - XGBoost probability distribution across all 21 TEP fault classes + Normal
- * - Estimated Time-To-Failure (TTF in minutes)
- * - GRU/LSTM temporal sequence comparison model metrics (confidence, latency, agreement)
- * - Top sliding-window features (slopes, rolling standard deviations, cross-correlations)
+ * Prototype fault scoring from hand-authored Tennessee Eastman process signatures.
+ * Scores are relative and uncalibrated; this is not a trained or validated model.
  */
 
-import { TEP_FAULTS, TEP_VARIABLES, type TEPFault } from '../tep/tepConstants.ts';
+import { TEP_FAULTS, TEP_VARIABLES } from '../tep/tepConstants.ts';
 import type { TelemetryPoint } from '../tep/tepSimulator.ts';
 
 export interface FaultPrediction {
   faultId: number; // 0 = Normal, 1..21 = IDV(1..21)
   code: string;
   name: string;
-  probability: number; // 0.0 - 1.0
+  score: number; // Relative class score; not a calibrated probability
+  isSupported: boolean;
   severity: 'low' | 'medium' | 'high' | 'critical';
-  ttfMinutes: number; // Estimated time to critical trip limit
+  ttfMinutes: null;
 }
 
-export interface ModelComparison {
-  xgboost: {
-    predictedFault: string;
-    faultId: number;
-    confidence: number;
-    latencyMs: number;
-    rocAuc: number;
-  };
-  gru: {
-    predictedFault: string;
-    faultId: number;
-    confidence: number;
-    latencyMs: number;
-    rocAuc: number;
-  };
-  agreement: boolean;
-  modelConfidenceRatio: number;
-  sequenceTemporalTrend: 'STABLE' | 'ACCELERATING' | 'DIVERGING' | 'DECAYING';
+export interface ModelValidationStatus {
+  method: 'PHYSICS_SIGNATURE_HEURISTIC';
+  status: 'UNVALIDATED';
+  supportedFaultIds: number[];
 }
 
 export interface PredictionResult {
   timestamp: number;
   topPrediction: FaultPrediction;
   allPredictions: FaultPrediction[];
-  comparison: ModelComparison;
-  estimatedTTFMinutes: number;
+  modelValidation: ModelValidationStatus;
+  estimatedTTFMinutes: null;
   riskLevel: 'LOW' | 'ELEVATED' | 'HIGH' | 'CRITICAL';
   windowFeatures: {
     featureName: string;
@@ -55,7 +37,9 @@ export interface PredictionResult {
   }[];
 }
 
-export class XGBoostPredictor {
+export const SUPPORTED_FAULT_IDS = [1, 2, 4, 5, 6, 14, 16, 20, 21];
+
+export class PhysicsSignaturePredictor {
   public predict(history: TelemetryPoint[]): PredictionResult {
     if (history.length === 0) {
       return this.fallbackNormal();
@@ -97,10 +81,10 @@ export class XGBoostPredictor {
       });
     }
 
-    // --- 2. MULTI-CLASS DECISION LOGITS BASED ON PHYSICS & TREE ENSEMBLE ---
+    // --- 2. Hand-authored process-signature scores ---
     const scores: Record<number, number> = { 0: 1.0 }; // Fault 0 = Normal
     for (let i = 1; i <= 21; i++) {
-      scores[i] = 0.02; // Prior base probability
+      scores[i] = 0.02; // Relative baseline score
     }
 
     // Evaluate signature patterns
@@ -110,8 +94,6 @@ export class XGBoostPredictor {
     const rCoolValve = vals['XMV_10'] || 41.1;
     const cCoolValve = vals['XMV_11'] || 18.1;
     const sepTemp = vals['XMEAS_11'] || 80.1;
-    const sepPress = vals['XMEAS_13'] || 2633.0;
-    const purgeRate = vals['XMEAS_10'] || 0.3371;
     const purgeValve = vals['XMV_6'] || 40.1;
     const aFlow = vals['XMEAS_1'] || 0.2505;
     const stream4Flow = vals['XMEAS_4'] || 9.3477;
@@ -159,13 +141,6 @@ export class XGBoostPredictor {
       scores[21] += Math.abs(stream4Flow - 9.3477) * 5.0;
     }
 
-    // Also factor active ground truth from simulator if fault was injected
-    if (currentPoint.activeFaults && currentPoint.activeFaults.length > 0) {
-      for (const af of currentPoint.activeFaults) {
-        scores[af] += 8.5 * (currentPoint.faultIntensity || 1.0);
-      }
-    }
-
     // If no strong fault signature, normal gets high weight
     const maxFaultScore = Math.max(...Object.entries(scores).filter(([k]) => k !== '0').map(([, v]) => v));
     if (maxFaultScore < 0.8) {
@@ -190,76 +165,46 @@ export class XGBoostPredictor {
       faultId: 0,
       code: 'NORMAL',
       name: 'Normal Operating Condition',
-      probability: pNormal,
+      score: pNormal,
+      isSupported: true,
       severity: 'low',
-      ttfMinutes: 999,
+      ttfMinutes: null,
     });
 
     // 21 TEP Faults
     for (const f of TEP_FAULTS) {
       const p = Number(((expScores[f.id] || 0.001) / expSum).toFixed(3));
-      // Estimate Time to Failure based on slope & critical limit distance
-      let ttf = 120; // default 2 hours
-      if (p > 0.4) {
-        const severityMultiplier = f.severity === 'critical' ? 0.35 : f.severity === 'high' ? 0.6 : 1.0;
-        ttf = Math.max(3.5, Number((45 * (1.0 - p + 0.1) * severityMultiplier).toFixed(1)));
-      } else if (p > 0.15) {
-        ttf = Math.max(15, Number((90 * (1.0 - p)).toFixed(1)));
-      }
-
       predictions.push({
         faultId: f.id,
         code: f.code,
         name: f.name,
-        probability: p,
+        score: p,
+        isSupported: SUPPORTED_FAULT_IDS.includes(f.id),
         severity: f.severity,
-        ttfMinutes: ttf,
+        ttfMinutes: null,
       });
     }
 
-    // Sort descending by probability
-    predictions.sort((a, b) => b.probability - a.probability);
+    predictions.sort((a, b) => b.score - a.score);
     const topPrediction = predictions[0];
-
-    // --- 3. MODEL COMPARISON (XGBoost vs GRU/LSTM) ---
-    // GRU uses temporal recurrent cells; slight variance in confidence
-    const gruProbOffset = (Math.random() - 0.48) * 0.06;
-    const gruConfidence = Math.max(0.05, Math.min(0.99, Number((topPrediction.probability + gruProbOffset).toFixed(3))));
-    const gruPredictedFault = topPrediction.probability > 0.35 ? topPrediction.code : 'NORMAL';
-
-    const comparison: ModelComparison = {
-      xgboost: {
-        predictedFault: topPrediction.code,
-        faultId: topPrediction.faultId,
-        confidence: topPrediction.probability,
-        latencyMs: 2.8,
-        rocAuc: 0.942,
-      },
-      gru: {
-        predictedFault: gruPredictedFault,
-        faultId: topPrediction.faultId,
-        confidence: gruConfidence,
-        latencyMs: 14.6,
-        rocAuc: 0.928,
-      },
-      agreement: true,
-      modelConfidenceRatio: Number((topPrediction.probability / Math.max(0.01, gruConfidence)).toFixed(2)),
-      sequenceTemporalTrend: topPrediction.faultId === 0 ? 'STABLE' : topPrediction.probability > 0.7 ? 'ACCELERATING' : 'DIVERGING',
-    };
 
     let riskLevel: 'LOW' | 'ELEVATED' | 'HIGH' | 'CRITICAL' = 'LOW';
     if (topPrediction.faultId !== 0) {
-      if (topPrediction.probability > 0.75 || topPrediction.severity === 'critical') riskLevel = 'CRITICAL';
-      else if (topPrediction.probability > 0.5) riskLevel = 'HIGH';
-      else if (topPrediction.probability > 0.25) riskLevel = 'ELEVATED';
+      if (topPrediction.score > 0.75 || topPrediction.severity === 'critical') riskLevel = 'CRITICAL';
+      else if (topPrediction.score > 0.5) riskLevel = 'HIGH';
+      else if (topPrediction.score > 0.25) riskLevel = 'ELEVATED';
     }
 
     return {
       timestamp: Date.now(),
       topPrediction,
       allPredictions: predictions,
-      comparison,
-      estimatedTTFMinutes: topPrediction.faultId === 0 ? 999 : topPrediction.ttfMinutes,
+      modelValidation: {
+        method: 'PHYSICS_SIGNATURE_HEURISTIC',
+        status: 'UNVALIDATED',
+        supportedFaultIds: [...SUPPORTED_FAULT_IDS],
+      },
+      estimatedTTFMinutes: null,
       riskLevel,
       windowFeatures: extractedFeatures,
     };
@@ -270,27 +215,26 @@ export class XGBoostPredictor {
       faultId: 0,
       code: 'NORMAL',
       name: 'Normal Operating Condition',
-      probability: 0.985,
+      score: 1,
+      isSupported: true,
       severity: 'low',
-      ttfMinutes: 999,
+      ttfMinutes: null,
     };
 
     return {
       timestamp: Date.now(),
       topPrediction: normalPred,
       allPredictions: [normalPred],
-      comparison: {
-        xgboost: { predictedFault: 'NORMAL', faultId: 0, confidence: 0.985, latencyMs: 2.5, rocAuc: 0.95 },
-        gru: { predictedFault: 'NORMAL', faultId: 0, confidence: 0.978, latencyMs: 13.8, rocAuc: 0.93 },
-        agreement: true,
-        modelConfidenceRatio: 1.01,
-        sequenceTemporalTrend: 'STABLE',
+      modelValidation: {
+        method: 'PHYSICS_SIGNATURE_HEURISTIC',
+        status: 'UNVALIDATED',
+        supportedFaultIds: [...SUPPORTED_FAULT_IDS],
       },
-      estimatedTTFMinutes: 999,
+      estimatedTTFMinutes: null,
       riskLevel: 'LOW',
       windowFeatures: [],
     };
   }
 }
 
-export const xgboostPredictor = new XGBoostPredictor();
+export const physicsSignaturePredictor = new PhysicsSignaturePredictor();

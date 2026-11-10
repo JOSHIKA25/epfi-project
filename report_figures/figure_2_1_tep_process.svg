@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="780" viewBox="0 0 1400 780" role="img" aria-labelledby="title desc">
+  <title id="title">Simplified Tennessee Eastman Process flow</title>
+  <desc id="desc">Feed enters the reactor, flows through condenser to separator, then branches to a stripper and compressor recycle back to the reactor.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2563a6"/></marker>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#f7fbff"/><stop offset="1" stop-color="#edf4fb"/></linearGradient>
+    <style>
+      .title{font:700 34px 'Aptos','Segoe UI',Arial,sans-serif;fill:#17324d}.subtitle{font:400 17px 'Aptos','Segoe UI',Arial,sans-serif;fill:#50677d}
+      .unit{fill:#fff;stroke:#47779e;stroke-width:3}.unithead{font:700 23px 'Aptos','Segoe UI',Arial,sans-serif;fill:#153957}.unittext{font:400 16px 'Aptos','Segoe UI',Arial,sans-serif;fill:#52697e}
+      .stream{fill:none;stroke:#2563a6;stroke-width:6;marker-end:url(#arrow);stroke-linecap:round;stroke-linejoin:round}.recycle{fill:none;stroke:#128177;stroke-width:6;marker-end:url(#arrow);stroke-linecap:round;stroke-linejoin:round}
+      .label{font:600 17px 'Aptos','Segoe UI',Arial,sans-serif;fill:#244b6b}.reclabel{font:700 16px 'Aptos','Segoe UI',Arial,sans-serif;fill:#08746c}
+      .foot{font:400 15px 'Aptos','Segoe UI',Arial,sans-serif;fill:#697b8c}.tag{fill:#e8f2fb;stroke:#bfd5e8;stroke-width:1.5}
+    </style>
+  </defs>
+  <rect width="1400" height="780" rx="24" fill="url(#bg)"/>
+  <text x="70" y="72" class="title">Tennessee Eastman Process</text>
+  <text x="70" y="105" class="subtitle">Simplified process arrangement used to explain the monitored units and recycle path</text>
+
+  <!-- Feed -->
+  <rect x="55" y="270" width="145" height="105" rx="16" class="unit"/>
+  <text x="127" y="309" text-anchor="middle" class="unithead">Feed</text>
+  <text x="127" y="339" text-anchor="middle" class="unittext">Process input</text>
+  <path d="M200 322 H280" class="stream"/>
+
+  <!-- Reactor -->
+  <rect x="290" y="235" width="225" height="175" rx="26" class="unit"/>
+  <circle cx="402" cy="278" r="19" fill="#dcecf8" stroke="#6c9bbd" stroke-width="2"/>
+  <path d="M391 278h22M402 267v22" stroke="#47779e" stroke-width="3" stroke-linecap="round"/>
+  <text x="402" y="332" text-anchor="middle" class="unithead">Reactor</text>
+  <text x="402" y="363" text-anchor="middle" class="unittext">Reaction and mixing</text>
+  <path d="M515 322 H605" class="stream"/>
+
+  <!-- Condenser -->
+  <rect x="615" y="235" width="225" height="175" rx="26" class="unit"/>
+  <path d="M674 273h106M674 287h106M674 301h106" stroke="#7aa4c2" stroke-width="5" stroke-linecap="round"/>
+  <text x="727" y="342" text-anchor="middle" class="unithead">Condenser</text>
+  <text x="727" y="373" text-anchor="middle" class="unittext">Cooling and condensation</text>
+  <path d="M840 322 H930" class="stream"/>
+
+  <!-- Separator -->
+  <rect x="940" y="235" width="225" height="175" rx="26" class="unit"/>
+  <path d="M1045 265v35M1014 300h62M1023 315h46" stroke="#7aa4c2" stroke-width="4" stroke-linecap="round"/>
+  <text x="1052" y="350" text-anchor="middle" class="unithead">Separator</text>
+  <text x="1052" y="379" text-anchor="middle" class="unittext">Liquid and gas split</text>
+
+  <!-- Stripper branch -->
+  <path d="M1052 410 V505 H955" class="stream"/>
+  <text x="1072" y="464" class="label">Liquid stream</text>
+  <rect x="725" y="465" width="220" height="105" rx="22" class="unit"/>
+  <text x="835" y="507" text-anchor="middle" class="unithead">Stripper</text>
+  <text x="835" y="537" text-anchor="middle" class="unittext">Liquid processing branch</text>
+
+  <!-- Compressor recycle branch -->
+  <path d="M1165 322 H1250 V525 H1180" class="recycle"/>
+  <text x="1194" y="295" class="reclabel">Recycle gas</text>
+  <rect x="1010" y="475" width="165" height="105" rx="22" class="unit"/>
+  <circle cx="1092" cy="507" r="16" fill="#e1f4f1" stroke="#38a396" stroke-width="2"/>
+  <path d="M1084 507h16M1092 499v16" stroke="#128177" stroke-width="2.5"/>
+  <text x="1092" y="546" text-anchor="middle" class="unithead" style="font-size:20px">Compressor</text>
+  <text x="1092" y="568" text-anchor="middle" class="unittext" style="font-size:14px">Recycle branch</text>
+  <path d="M1092 580 V655 H420 V410" class="recycle"/>
+  <text x="590" y="642" class="reclabel">Compressed recycle returns to reactor</text>
+
+  <rect x="55" y="710" width="1290" height="48" rx="12" class="tag"/>
+  <text x="700" y="740" text-anchor="middle" class="foot">Project representation is simplified for explanation; it is not a detailed P&amp;ID or a control diagram.</text>
+</svg>

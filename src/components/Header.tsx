@@ -3,11 +3,8 @@ import {
   Activity,
   AlertTriangle,
   Play,
+  Pause,
   RotateCcw,
-  Zap,
-  Bot,
-  Layers,
-  Radio,
   Clock,
   Sparkles,
   ShieldAlert,
@@ -23,10 +20,11 @@ interface HeaderProps {
   onToggleSimulate: () => void;
   onStepSimulate: () => void;
   onResetPlant: () => void;
+    canOperateProcess: boolean;
   onClearFaults: () => void;
-  onOpenCrewAI: () => void;
   onOpenCopilot: () => void;
   copilotOpen: boolean;
+  workflowMode?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,17 +36,18 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSimulate,
   onStepSimulate,
   onResetPlant,
+  canOperateProcess,
   onClearFaults,
-  onOpenCrewAI,
   onOpenCopilot,
   copilotOpen,
+  workflowMode = false,
 }) => {
   const avgHealth = unitHealth.length > 0
     ? Math.round(unitHealth.reduce((acc, u) => acc + u.healthIndex, 0) / unitHealth.length)
     : 98;
 
-  const hasAlarms = activeFaults.length > 0 || anomalyScore > 35;
-  const isEmergency = anomalyScore > 75 || activeFaults.some((f) => f.severity === 'critical');
+  const hasAlarms = activeFaults.length > 0 || anomalyScore >= 100;
+  const isEmergency = activeFaults.some((f) => f.severity === 'critical');
 
   return (
     <header className="bg-slate-900 border-b border-slate-800 text-slate-100 px-4 py-2.5 select-none sticky top-0 z-30 shadow-lg">
@@ -65,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}>
               <Activity className="w-5 h-5" />
             </div>
-            {isSimulating && (
+            {isSimulating && !workflowMode && (
               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-cyan-400 ring-2 ring-slate-900 animate-ping" />
             )}
           </div>
@@ -75,8 +74,10 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-extrabold tracking-tight text-white text-base">
                 IndustrialTwin <span className="text-cyan-400 font-mono text-xs px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-800/60">TEP-AI</span>
               </span>
-              <span className="text-xs px-2 py-0.5 rounded-full font-mono font-medium border bg-slate-800 text-slate-300 border-slate-700">
-                Downs & Vogel (1993)
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border bg-amber-950/70 text-amber-200 border-amber-800/70"
+              >
+                {workflowMode ? 'TEP DATA WORKFLOW' : 'SIMULATED'}
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">
@@ -86,18 +87,18 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
               <span className="hidden sm:inline-block text-slate-600">•</span>
               <span className="hidden sm:inline-block">
-                Variables: <strong className="text-slate-200">41 Continuous & GC</strong>
+                {isSimulating ? 'Running' : 'Paused'}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Live Status Gauges */}
-        <div className="flex items-center gap-4">
+        {/* Live status belongs to the simulator view, not the dataset workflow. */}
+        {!workflowMode && <div className="flex items-center gap-4">
           {/* Plant Health */}
           <div className="bg-slate-800/90 border border-slate-700/80 rounded-lg px-3 py-1.5 flex items-center gap-2.5">
             <div className="text-right">
-              <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Plant Health</div>
+              <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Plant health</div>
               <div className="text-sm font-mono font-bold flex items-center justify-end gap-1">
                 <span className={avgHealth > 80 ? 'text-emerald-400' : avgHealth > 50 ? 'text-amber-400' : 'text-rose-400'}>
                   {avgHealth}%
@@ -118,15 +119,19 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Anomaly SPE Score */}
           <div className="bg-slate-800/90 border border-slate-700/80 rounded-lg px-3 py-1.5 flex items-center gap-2.5">
             <div>
-              <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Autoencoder SPE</div>
+              <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Anomaly</div>
               <div className="text-sm font-mono font-bold flex items-center gap-1.5">
-                <span className={anomalyScore > 60 ? 'text-rose-400' : anomalyScore > 35 ? 'text-amber-400' : 'text-cyan-400'}>
-                  {anomalyScore.toFixed(1)}%
+                <span className={anomalyScore >= 100 ? 'text-amber-400' : 'text-cyan-400'}>
+                  {anomalyScore >= 100
+                    ? `${(anomalyScore / 100).toFixed(1)}× limit`
+                    : `${anomalyScore.toFixed(1)}% of limit`}
                 </span>
-                <span className="text-[10px] text-slate-500 font-normal">/ 35% lim</span>
               </div>
             </div>
-            <div className={`p-1.5 rounded-md ${anomalyScore > 60 ? 'bg-rose-950 text-rose-400' : anomalyScore > 35 ? 'bg-amber-950 text-amber-400' : 'bg-cyan-950 text-cyan-400'}`}>
+            <div
+              className={`p-1.5 rounded-md ${anomalyScore >= 100 ? 'bg-amber-950 text-amber-400' : 'bg-cyan-950 text-cyan-400'}`}
+              title="This is SPE divided by its calibrated control limit. 100% equals the limit; values can exceed 100%. It is not a probability or bounded health score."
+            >
               <ShieldAlert className="w-4 h-4" />
             </div>
           </div>
@@ -141,13 +146,13 @@ export const Header: React.FC<HeaderProps> = ({
                   {activeFaults.map((f) => f.code).join(', ')}
                 </div>
               </div>
-              <button
+              {canOperateProcess && <button
                 onClick={onClearFaults}
                 className="ml-1 text-[10px] px-1.5 py-0.5 bg-rose-800 hover:bg-rose-700 text-white rounded font-medium cursor-pointer"
                 title="Clear active fault disturbance"
               >
                 Clear
-              </button>
+              </button>}
             </div>
           ) : (
             <div className="hidden lg:flex items-center gap-1.5 bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 rounded-lg px-3 py-1.5 text-xs font-mono">
@@ -155,56 +160,46 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Plant Steady State (Nominal)</span>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Simulation Controls & Assistant Triggers */}
         <div className="flex items-center gap-2">
           {/* Pause / Resume */}
-          <button
+          {!workflowMode && canOperateProcess && <button
             onClick={onToggleSimulate}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer ${
               isSimulating
                 ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white font-bold'
             }`}
-            title={isSimulating ? 'Pause simulation tick' : 'Start simulation tick'}
+            title={isSimulating ? 'Pause the simulated plant' : 'Resume the simulated plant'}
           >
-            {isSimulating ? <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" /> : <Play className="w-3.5 h-3.5" />}
-            <span>{isSimulating ? 'Simulating' : 'Start'}</span>
-          </button>
+            {isSimulating ? <Pause className="w-3.5 h-3.5 text-amber-300" /> : <Play className="w-3.5 h-3.5" />}
+            <span>{isSimulating ? 'Pause' : 'Resume'}</span>
+          </button>}
 
           {/* Single Step */}
-          <button
+          {!workflowMode && canOperateProcess && <button
             onClick={onStepSimulate}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition cursor-pointer"
-            title="Advance 1 Step (1 sec)"
+            title="Advance the simulation by one tick (use while paused)"
+            disabled={isSimulating}
+            className={`p-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-xs transition ${isSimulating ? 'opacity-40 cursor-not-allowed' : 'hover:bg-slate-700 cursor-pointer'}`}
           >
             <Clock className="w-4 h-4" />
-          </button>
+          </button>}
 
           {/* Reset Plant */}
-          <button
+          {!workflowMode && canOperateProcess && <button
             onClick={onResetPlant}
             className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs flex items-center gap-1 transition cursor-pointer"
-            title="Reset all 41 TEP variables to nominal steady state"
+            title="Reset simulated telemetry and archive open alarm cards; keep audit history and work orders"
           >
             <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
             <span className="hidden sm:inline">Reset</span>
-          </button>
+          </button>}
 
-          <div className="h-5 w-px bg-slate-800 mx-1 hidden sm:block" />
+          {!workflowMode && <div className="h-5 w-px bg-slate-800 mx-1 hidden sm:block" />}
 
-          {/* CrewAI Orchestration Trigger */}
-          <button
-            onClick={onOpenCrewAI}
-            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md transition cursor-pointer"
-            title="Run hierarchical CrewAI Multi-Agent orchestrator"
-          >
-            <Layers className="w-3.5 h-3.5 text-violet-200" />
-            <span className="hidden md:inline">CrewAI</span> Orchestrator
-          </button>
-
-          {/* Gemini AI Copilot */}
           <button
             onClick={onOpenCopilot}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md transition cursor-pointer ${
@@ -212,10 +207,10 @@ export const Header: React.FC<HeaderProps> = ({
                 ? 'bg-cyan-500 text-slate-950 font-bold'
                 : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white'
             }`}
-            title="Open Gemini AI Natural Language Plant Reasoning Copilot"
+            title="Open diagnosis assistant"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Gemini AI</span>
+            <span>Assistant</span>
           </button>
         </div>
       </div>

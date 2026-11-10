@@ -1,6 +1,6 @@
 {
   "name": "IndustrialTwin AI - Tennessee Eastman Digital Twin & Predictive Maintenance",
-  "description": "Production-grade AI-powered Industrial Digital Twin for the Tennessee Eastman Process (TEP) with multi-agent predictive maintenance, autoencoder anomaly detection, XGBoost/GRU future-fault prediction, SHAP/XAI, Neo4j Knowledge Graph, RAG engineering docs, and Gemini reasoning.",
+  "description": "Tennessee Eastman Process digital-twin prototype with CrewAI orchestration, process telemetry, heuristic fault scoring, graph context, engineering-document retrieval, and Gemini assistance.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

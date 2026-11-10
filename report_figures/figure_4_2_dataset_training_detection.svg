@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">TEP dataset preparation, training, detection, and diagnosis</title>
+  <desc id="desc">Normal and fault training datasets create PCA, autoencoder and XGBoost artifacts. A separate TEP run is validated, scored in time order, alarmed by two consecutive autoencoder threshold exceedances, diagnosed with a 25-sample window, explained with TreeSHAP and reviewed by human roles.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#436782"/></marker>
+    <marker id="arrowgreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#13847a"/></marker>
+    <style>
+      .title{font:700 33px 'Aptos','Segoe UI',Arial,sans-serif;fill:#17324d}.sub{font:400 17px 'Aptos','Segoe UI',Arial,sans-serif;fill:#587083}
+      .head{font:700 19px 'Aptos','Segoe UI',Arial,sans-serif;fill:#173b59}.body{font:400 15px 'Aptos','Segoe UI',Arial,sans-serif;fill:#435e73}.small{font:400 13px 'Aptos','Segoe UI',Arial,sans-serif;fill:#587083}
+      .card{fill:#fff;stroke:#9db8cb;stroke-width:2}.blue{fill:#edf5fc;stroke:#79a8ca;stroke-width:2}.violet{fill:#f2effc;stroke:#a999d5;stroke-width:2}.teal{fill:#eaf7f5;stroke:#69afa7;stroke-width:2}.gold{fill:#fff6e7;stroke:#d9ac59;stroke-width:2}.grey{fill:#f2f5f7;stroke:#a9b6c1;stroke-width:2}
+      .arrow{fill:none;stroke:#436782;stroke-width:3;marker-end:url(#arrow);stroke-linecap:round;stroke-linejoin:round}.greenarrow{fill:none;stroke:#13847a;stroke-width:3;marker-end:url(#arrowgreen);stroke-linecap:round;stroke-linejoin:round}.dash{fill:none;stroke:#8097a8;stroke-width:2;stroke-dasharray:8 7}
+      .pill{font:700 12px 'Aptos','Segoe UI',Arial,sans-serif;fill:#fff}.band{font:700 15px 'Aptos','Segoe UI',Arial,sans-serif;letter-spacing:1px;fill:#31536f}
+    </style>
+  </defs>
+  <rect width="1600" height="1200" rx="22" fill="#f7fafc"/>
+  <text x="65" y="65" class="title">From TEP datasets to an explained, reviewed diagnosis</text>
+  <text x="65" y="97" class="sub">Training artifacts are fitted before inference. The loaded run is scored chronologically and its label is withheld from prediction.</text>
+
+  <!-- training band -->
+  <rect x="45" y="125" width="1510" height="360" rx="22" fill="#eef4f8" stroke="#cedbe4" stroke-width="2"/>
+  <text x="75" y="160" class="band">MODEL PREPARATION · FIT AND CALIBRATE BY COMPLETE RUN</text>
+
+  <rect x="80" y="190" width="330" height="92" rx="16" class="blue"/>
+  <text x="245" y="225" text-anchor="middle" class="head">Normal training data</text>
+  <text x="245" y="253" text-anchor="middle" class="body">TEP_FaultFree_Training.csv</text>
+  <text x="245" y="272" text-anchor="middle" class="small">52 aligned channels · faultNumber = 0</text>
+
+  <rect x="80" y="315" width="330" height="92" rx="16" class="gold"/>
+  <text x="245" y="350" text-anchor="middle" class="head">Labeled fault training</text>
+  <text x="245" y="378" text-anchor="middle" class="body">faulty_training.csv</text>
+  <text x="245" y="397" text-anchor="middle" class="small">Fault labels are targets, not input features</text>
+
+  <rect x="475" y="190" width="275" height="92" rx="16" class="grey"/>
+  <text x="612" y="225" text-anchor="middle" class="head">Run-grouped splits</text>
+  <text x="612" y="253" text-anchor="middle" class="body">Training · calibration · holdout</text>
+  <text x="612" y="272" text-anchor="middle" class="small">No run is split across partitions</text>
+
+  <rect x="475" y="315" width="275" height="92" rx="16" class="grey"/>
+  <text x="612" y="350" text-anchor="middle" class="head">Window features</text>
+  <text x="612" y="378" text-anchor="middle" class="body">25 samples per example</text>
+  <text x="612" y="397" text-anchor="middle" class="small">last · mean · standard deviation · slope</text>
+
+  <path d="M410 236 H465" class="arrow"/><path d="M410 361 H465" class="arrow"/>
+
+  <rect x="810" y="190" width="300" height="92" rx="16" class="violet"/>
+  <text x="960" y="225" text-anchor="middle" class="head">Fit normal detectors</text>
+  <text x="960" y="253" text-anchor="middle" class="body">PCA and MLP autoencoder</text>
+  <text x="960" y="272" text-anchor="middle" class="small">Calibrate statistical limits on normal runs</text>
+
+  <rect x="810" y="315" width="300" height="92" rx="16" class="blue"/>
+  <text x="960" y="350" text-anchor="middle" class="head">Fit diagnosis model</text>
+  <text x="960" y="378" text-anchor="middle" class="body">XGBoost on labeled examples</text>
+  <text x="960" y="397" text-anchor="middle" class="small">Select gates using validation evidence</text>
+  <path d="M750 236 H800" class="arrow"/><path d="M750 361 H800" class="arrow"/>
+
+  <rect x="1170" y="248" width="320" height="110" rx="18" class="teal"/>
+  <text x="1330" y="287" text-anchor="middle" class="head">Saved model artifacts</text>
+  <text x="1330" y="315" text-anchor="middle" class="body">Preprocessing · weights · thresholds</text>
+  <text x="1330" y="338" text-anchor="middle" class="small">Loaded by the inference service</text>
+  <path d="M1110 236 H1140 V282 H1160" class="arrow"/><path d="M1110 361 H1140 V324 H1160" class="arrow"/>
+
+  <rect x="80" y="430" width="390" height="38" rx="10" fill="#fff" stroke="#b8c7d2" stroke-width="1.5"/>
+  <text x="275" y="455" text-anchor="middle" class="small">Held-out: fault_free_testing.csv + faulty_testing.csv</text>
+  <text x="510" y="454" class="small">Used for evaluation after fitting; never used to make a prediction.</text>
+
+  <!-- divider to inference -->
+  <path d="M1330 358 V520 H245 V595" class="greenarrow"/>
+  <text x="1040" y="510" class="small" fill="#13847a">Artifacts are applied to a new loaded run</text>
+
+  <!-- inference band -->
+  <rect x="45" y="535" width="1510" height="600" rx="22" fill="#f0f7f6" stroke="#bddbd6" stroke-width="2"/>
+  <text x="75" y="570" class="band">INTEGRATED INFERENCE · DETECT → DIAGNOSE → REVIEW</text>
+
+  <rect x="95" y="605" width="300" height="90" rx="16" class="blue"/>
+  <text x="245" y="640" text-anchor="middle" class="head">Load one TEP run</text>
+  <text x="245" y="668" text-anchor="middle" class="body">Chronological CSV · 52 channels</text>
+  <text x="245" y="687" text-anchor="middle" class="small">Known label withheld from prediction</text>
+
+  <rect x="465" y="605" width="300" height="90" rx="16" class="grey"/>
+  <text x="615" y="640" text-anchor="middle" class="head">Validate and standardize</text>
+  <text x="615" y="668" text-anchor="middle" class="body">Check schema, order, finite values</text>
+  <text x="615" y="687" text-anchor="middle" class="small">Use training-fitted scaling parameters</text>
+  <path d="M395 650 H455" class="arrow"/>
+
+  <rect x="835" y="605" width="330" height="90" rx="16" class="violet"/>
+  <text x="1000" y="640" text-anchor="middle" class="head">Score in time order</text>
+  <text x="1000" y="668" text-anchor="middle" class="body">PCA: T²/SPE · AE: reconstruction error</text>
+  <text x="1000" y="687" text-anchor="middle" class="small">PCA is supporting evidence</text>
+  <path d="M765 650 H825" class="arrow"/>
+
+  <polygon points="1320,595 1455,650 1320,705 1185,650" fill="#fff6e7" stroke="#d5a94f" stroke-width="2.5"/>
+  <text x="1320" y="642" text-anchor="middle" class="head" style="font-size:17px">Two consecutive</text>
+  <text x="1320" y="665" text-anchor="middle" class="head" style="font-size:17px">AE scores &gt; limit?</text>
+  <path d="M1165 650 H1177" class="arrow"/>
+
+  <rect x="1110" y="765" width="260" height="82" rx="15" class="grey"/>
+  <text x="1240" y="799" text-anchor="middle" class="head">No: continue scan</text>
+  <text x="1240" y="826" text-anchor="middle" class="small">No persistent alarm yet</text>
+  <path d="M1320 705 V752" class="arrow"/>
+  <text x="1340" y="739" class="small">No</text>
+  <path d="M1110 805 H1000 V710" class="dash"/>
+
+  <rect x="1375" y="765" width="145" height="82" rx="15" class="gold"/>
+  <text x="1447" y="799" text-anchor="middle" class="head" style="font-size:16px">Yes</text>
+  <text x="1447" y="825" text-anchor="middle" class="small">First alarm</text>
+  <path d="M1400 679 L1445 755" class="greenarrow"/>
+
+  <rect x="1220" y="900" width="300" height="86" rx="16" class="blue"/>
+  <text x="1370" y="934" text-anchor="middle" class="head">Extract alarm window</text>
+  <text x="1370" y="962" text-anchor="middle" class="body">25 samples ending at first alarm</text>
+  <path d="M1447 847 V890" class="greenarrow"/>
+
+  <rect x="840" y="900" width="330" height="86" rx="16" class="grey"/>
+  <text x="1005" y="934" text-anchor="middle" class="head">Calculate temporal features</text>
+  <text x="1005" y="962" text-anchor="middle" class="body">52 channels × 4 statistics = 208</text>
+  <path d="M1220 943 H1180" class="arrow"/>
+
+  <rect x="475" y="900" width="315" height="86" rx="16" class="blue"/>
+  <text x="632" y="934" text-anchor="middle" class="head">XGBoost diagnosis</text>
+  <text x="632" y="962" text-anchor="middle" class="body">Candidate fault class or unknown</text>
+  <path d="M840 943 H800" class="arrow"/>
+
+  <rect x="110" y="900" width="315" height="86" rx="16" class="violet"/>
+  <text x="267" y="934" text-anchor="middle" class="head">TreeSHAP explanation</text>
+  <text x="267" y="962" text-anchor="middle" class="body">Rank features behind the output</text>
+  <path d="M475 943 H435" class="arrow"/>
+
+  <rect x="110" y="1035" width="1410" height="62" rx="15" class="teal"/>
+  <text x="815" y="1062" text-anchor="middle" class="head">Human review and maintenance record</text>
+  <text x="815" y="1086" text-anchor="middle" class="body">Operator acknowledges → Engineer approves/rejects → Technician records repair → Engineer closes</text>
+  <path d="M267 986 V1025" class="greenarrow"/>
+
+  <text x="75" y="1168" class="small">Model outputs are advisory evidence. The workflow does not control a physical plant or establish causal fault relationships.</text>
+</svg>

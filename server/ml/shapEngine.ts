@@ -1,13 +1,10 @@
 /**
- * Explainable AI (XAI) Engine - SHAP (Shapley Additive exPlanations)
- * Explains machine learning fault predictions and autoencoder anomalies:
- * - Computes Shapley values phi_i for top sensor features
- * - Generates Waterfall chart data: E[f(x)] base value -> feature shifts -> f(x) model output
- * - Translates mathematical SHAP values into physical chemical engineering explanations
+ * Prototype sensor attribution based on deviations and hand-authored fault signatures.
+ * These values are not SHAP values and do not explain a trained model.
  */
 
 import { TEP_FAULTS, TEP_VARIABLES, type TEPFault, type TEPVariable } from '../tep/tepConstants.ts';
-import type { PredictionResult } from './xgboostPredictor.ts';
+import type { PredictionResult } from './physicsSignaturePredictor.ts';
 import type { AnomalyReport } from './autoencoder.ts';
 
 export interface ShapFeatureContribution {
@@ -17,7 +14,7 @@ export interface ShapFeatureContribution {
   unit: string;
   currentValue: number;
   nominalValue: number;
-  shapValue: number; // Positive = pushes toward predicted fault; Negative = pushes toward normal
+  shapValue: number; // Signed heuristic attribution, not a Shapley value
   direction: 'increases_risk' | 'decreases_risk';
   percentImpact: number;
   physicalInterpretation: string;
@@ -28,8 +25,6 @@ export interface ShapExplanation {
   targetFaultCode: string;
   targetFaultName: string;
   targetFaultId: number;
-  baseValue: number; // E[f(x)]
-  outputValue: number; // f(x)
   topContributions: ShapFeatureContribution[];
   summaryText: string;
 }
@@ -42,11 +37,6 @@ export class ShapEngine {
   ): ShapExplanation {
     const topPred = prediction.topPrediction;
     const isNormal = topPred.faultId === 0;
-
-    const baseValue = -2.15; // Expected log-odds baseline across normal operation
-    const outputValue = isNormal
-      ? -2.85
-      : Number((baseValue + Math.log(Math.max(0.01, topPred.probability / (1.001 - topPred.probability)))).toFixed(2));
 
     const contributions: ShapFeatureContribution[] = [];
 
@@ -71,8 +61,7 @@ export class ShapEngine {
       let shapVal = 0;
 
       if (isNormal) {
-        // Under normal condition, features keep log-odds negative
-        shapVal = -0.15 - Math.random() * 0.1;
+        shapVal = -Number((0.15 + Math.min(0.1, Math.abs(devPercent) * 0.005)).toFixed(2));
       } else {
         // Under fault condition, calculate marginal contribution based on physics relevance
         const isDirectKey = keySensors.includes(varId);
@@ -82,7 +71,7 @@ export class ShapEngine {
 
         // Invert sign if feature is buffering or suppressing the fault
         if (Math.abs(devPercent) < 2.0) {
-          shapVal = -Number((0.15 + Math.random() * 0.1).toFixed(2));
+          shapVal = -Number((0.15 + Math.min(0.1, Math.abs(devPercent) * 0.005)).toFixed(2));
         }
       }
 
@@ -125,10 +114,10 @@ export class ShapEngine {
     const topPositive = contributions.filter((c) => c.shapValue > 0).slice(0, 3);
     let summaryText = '';
     if (isNormal) {
-      summaryText = 'SHAP analysis indicates all process variables lie within the standard operating envelope. No significant feature deviations detected.';
+      summaryText = 'Heuristic sensor attribution found no strong supported fault signature. This is not a validated model explanation.';
     } else {
       const featureNames = topPositive.map((c) => `${c.code} (${c.name})`).join(', ');
-      summaryText = `XGBoost prediction for ${topPred.code} (${topPred.name}) is primarily driven by positive SHAP attributions from: ${featureNames}, accounting for ${topPositive.reduce((acc, c) => acc + c.percentImpact, 0).toFixed(1)}% of total model decision weight.`;
+      summaryText = `The rule-based score for ${topPred.code} (${topPred.name}) is associated with relative sensor deviations in: ${featureNames}. These heuristic attributions are not SHAP values or causal evidence.`;
     }
 
     return {
@@ -136,8 +125,6 @@ export class ShapEngine {
       targetFaultCode: topPred.code,
       targetFaultName: topPred.name,
       targetFaultId: topPred.faultId,
-      baseValue,
-      outputValue,
       topContributions: contributions.slice(0, 8),
       summaryText,
     };

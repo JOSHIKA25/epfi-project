@@ -11,6 +11,7 @@
  */
 
 import { TEP_VARIABLES, TEP_FAULTS, type TEPVariable, type TEPFault } from './tepConstants.ts';
+import { stateStore } from '../state/stateStore.ts';
 
 export interface TelemetryPoint {
   timestamp: number;
@@ -24,6 +25,7 @@ export interface TelemetryPoint {
 export interface UnitHealthState {
   unit: string;
   name: string;
+  monitoredChannels: string[];
   healthIndex: number; // 0 - 100%
   status: 'OPTIMAL' | 'STABLE' | 'DEGRADED' | 'CRITICAL';
   activeAlarmsCount: number;
@@ -87,6 +89,14 @@ export class TEPSimulator {
     this.recordSnapshot();
   }
 
+  public setRunning(running: boolean): void {
+    this.isRunning = running;
+  }
+
+  public getSimulationStatus(): boolean {
+    return this.isRunning;
+  }
+
   public injectFault(faultId: number, intensity: number = 1.0): void {
     if (faultId >= 1 && faultId <= 21) {
       this.activeFaults.add(faultId);
@@ -113,6 +123,16 @@ export class TEPSimulator {
   }
 
   public step(): TelemetryPoint {
+    if (!this.isRunning) return this.getLatestTelemetry();
+    return this.advanceOneStep();
+  }
+
+  /** Advance exactly one tick even when the continuous simulation is paused. */
+  public stepOnce(): TelemetryPoint {
+    return this.advanceOneStep();
+  }
+
+  private advanceOneStep(): TelemetryPoint {
     this.stepCount++;
     const s = this.state;
     const fInt = this.faultIntensity;
@@ -239,9 +259,10 @@ export class TEPSimulator {
 
     // Exothermic heat generation function Q_rxn
     const tempK = (s['XMEAS_9'] || 120.4) + 273.15;
-    const arrhenius = Math.exp(30.0 - 9000.0 / tempK) * this.internalKinetics;
+    const nominalTempK = 120.4 + 273.15;
+    const arrhenius = Math.exp(9000.0 / nominalTempK - 9000.0 / tempK) * this.internalKinetics;
     const reactantAvailability = (s['XMEAS_1'] / 0.2505) * (s['XMEAS_4'] / 9.3477);
-    const heatGenerated = 45000.0 * arrhenius * reactantAvailability;
+    const heatGenerated = 45600.0 * arrhenius * reactantAvailability;
 
     // Reactor cooling control loop (PI Controller on XMV_10)
     const tempSetpoint = 120.4;
@@ -303,7 +324,7 @@ export class TEPSimulator {
     }
 
     const effectiveUA = (1.0 - this.condenserFouling) * (s['XMV_11'] / 18.1);
-    s['XMEAS_22'] = cCoolingInlet + 49.3 / (effectiveUA + 0.1) + (Math.random() - 0.5) * 0.2;
+    s['XMEAS_22'] = cCoolingInlet + 54.23 / (effectiveUA + 0.1) + (Math.random() - 0.5) * 0.2;
 
     // --- 4. SEPARATOR DYNAMICS ---
     s['XMEAS_11'] = 80.1 + (s['XMEAS_9'] - 120.4) * 0.35 + (cCoolWaterInletDisturb) * 0.4 + this.condenserFouling * 18.0 + (Math.random() - 0.5) * 0.15;
@@ -327,7 +348,7 @@ export class TEPSimulator {
     s['XMEAS_10'] = 0.3371 + (s['XMV_6'] - 40.1) * 0.01 + (s['XMEAS_13'] - 2633.0) * 0.0003 + (Math.random() - 0.5) * 0.005;
 
     // --- 6. STRIPPER COLUMN DYNAMICS ---
-    s['XMEAS_16'] = s['XMEAS_13'] - 143.0 + (Math.random() - 0.5) * 1.0;
+    s['XMEAS_16'] = 3102.2 + (s['XMEAS_13'] - 2633.8) + (Math.random() - 0.5) * 1.0;
 
     // Stripper Steam control
     s['XMEAS_19'] = 230.5 + (s['XMV_9'] - 47.4) * 4.5 + steamDisturb + (Math.random() - 0.5) * 2.5;
@@ -390,6 +411,7 @@ export class TEPSimulator {
       this.history.shift();
     }
 
+    stateStore.recordTelemetryHistory(this.history.slice());
     return snapshot;
   }
 
@@ -469,6 +491,7 @@ export class TEPSimulator {
       return {
         unit: u.unit,
         name: u.name,
+        monitoredChannels: u.vars,
         healthIndex,
         status,
         activeAlarmsCount: u.vars.filter((vid) => alarms[vid] !== 'NORMAL').length,

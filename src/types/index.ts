@@ -17,6 +17,34 @@ export interface TEPVariable {
   category: 'feed' | 'reactor' | 'condenser' | 'separator' | 'stripper' | 'compressor' | 'product';
   type: 'measurement' | 'actuator' | 'composition';
   description: string;
+  benchmarkMapping?: {
+    status:
+      | 'used_for_normal_training'
+      | 'excluded_semantic_mismatch'
+      | 'not_available_in_training_data';
+    datasetColumn: string | null;
+    reason: string;
+  };
+}
+
+export interface TEPDataProfile {
+  mode: 'simulated';
+  simulator: string;
+  livePlantConnected: boolean;
+  currentTelemetryChannelCount: number;
+  trainingDataset: {
+    name: string;
+    labelScope: string;
+    sourceAndLicenseVerified: boolean;
+    autoencoderFeatureCount: number;
+    faultLabeledEvaluationAvailable: boolean;
+  };
+  supervisedFaultTrainingDataset: string;
+  heldOutTestingDatasets: string[];
+  supervisedFaultClassesAvailable: number[];
+  benchmarkChannelsNotModeled: string[];
+  simulatorChannelsNotPresentInLocalDataset: string[];
+  limitations: string[];
 }
 
 export interface TEPFault {
@@ -44,6 +72,7 @@ export interface TelemetryPoint {
 export interface UnitHealthState {
   unit: string;
   name: string;
+  monitoredChannels: string[];
   healthIndex: number;
   status: 'OPTIMAL' | 'STABLE' | 'DEGRADED' | 'CRITICAL';
   activeAlarmsCount: number;
@@ -51,6 +80,33 @@ export interface UnitHealthState {
   temperature: number;
   pressure: number;
   level?: number;
+}
+
+export interface UnitAgentObservation {
+  channelId: string;
+  value: number | null;
+  alarm: 'NORMAL' | 'WARN_LOW' | 'WARN_HIGH' | 'TRIP_LOW' | 'TRIP_HIGH' | 'UNAVAILABLE';
+}
+
+export interface UnitAgentAssessment {
+  agentName: string;
+  unit: string;
+  unitName: string;
+  upstreamUnits: string[];
+  digitalGate: 'READY' | 'HOLD_REVIEW';
+  blockedByUnits: string[];
+  dataQuality: 'COMPLETE' | 'INCOMPLETE';
+  missingChannels: string[];
+  telemetryTimestamp: number;
+  generatedAt: number;
+  dataSource: 'SIMULATED_TEP';
+  authority: 'ADVISORY_ONLY';
+  healthStatus: UnitHealthState['status'];
+  healthIndex: number | null;
+  activeAlarmsCount: number;
+  status: 'MONITORING' | 'REVIEW' | 'ATTENTION' | 'URGENT_REVIEW';
+  observations: UnitAgentObservation[];
+  recommendation: string;
 }
 
 export interface SensorAttribution {
@@ -70,10 +126,15 @@ export interface AnomalyReport {
   timestamp: number;
   anomalyScore: number;
   threshold: number;
+  speThreshold: number;
+  calibrationQuantile: number;
+  trainingDataName: string;
+  trainingRunCount: number;
+  normalHoldoutFalseAlarmRate: number;
   isAnomalous: boolean;
   severity: 'NORMAL' | 'WARNING' | 'CRITICAL' | 'EMERGENCY';
   speMetric: number;
-  t2Metric: number;
+  standardizedInputDistance: number;
   persistenceCount: number;
   topOffendingSensors: SensorAttribution[];
   attributions: SensorAttribution[];
@@ -83,37 +144,24 @@ export interface FaultPrediction {
   faultId: number;
   code: string;
   name: string;
-  probability: number;
+  score: number;
+  isSupported: boolean;
   severity: 'low' | 'medium' | 'high' | 'critical';
-  ttfMinutes: number;
+  ttfMinutes: null;
 }
 
-export interface ModelComparison {
-  xgboost: {
-    predictedFault: string;
-    faultId: number;
-    confidence: number;
-    latencyMs: number;
-    rocAuc: number;
-  };
-  gru: {
-    predictedFault: string;
-    faultId: number;
-    confidence: number;
-    latencyMs: number;
-    rocAuc: number;
-  };
-  agreement: boolean;
-  modelConfidenceRatio: number;
-  sequenceTemporalTrend: 'STABLE' | 'ACCELERATING' | 'DIVERGING' | 'DECAYING';
+export interface ModelValidationStatus {
+  method: 'PHYSICS_SIGNATURE_HEURISTIC';
+  status: 'UNVALIDATED';
+  supportedFaultIds: number[];
 }
 
 export interface PredictionResult {
   timestamp: number;
   topPrediction: FaultPrediction;
   allPredictions: FaultPrediction[];
-  comparison: ModelComparison;
-  estimatedTTFMinutes: number;
+  modelValidation: ModelValidationStatus;
+  estimatedTTFMinutes: null;
   riskLevel: 'LOW' | 'ELEVATED' | 'HIGH' | 'CRITICAL';
   windowFeatures: {
     featureName: string;
@@ -141,8 +189,6 @@ export interface ShapExplanation {
   targetFaultCode: string;
   targetFaultName: string;
   targetFaultId: number;
-  baseValue: number;
-  outputValue: number;
   topContributions: ShapFeatureContribution[];
   summaryText: string;
 }
@@ -160,7 +206,7 @@ export interface GraphNode {
 
 export interface GraphRelationship {
   id: string;
-  type: 'LOCATED_IN' | 'MEASURES' | 'CONTROLS' | 'FLOWS_TO' | 'CAUSES' | 'EXHIBITS_SYMPTOM' | 'REMEDIED_BY' | 'AFFECTS_UNIT';
+  type: 'LOCATED_IN' | 'MEASURES' | 'CONTROLS' | 'FLOWS_TO' | 'ASSOCIATED_WITH' | 'EXHIBITS_SYMPTOM' | 'HAS_UNVERIFIED_REFERENCE' | 'AFFECTS_UNIT';
   source: string;
   target: string;
   properties?: Record<string, any>;
@@ -171,21 +217,44 @@ export interface KnowledgeGraphData {
   relationships: GraphRelationship[];
 }
 
+export type KnowledgeGraphQueryId =
+  | 'fault-evidence-links'
+  | 'fault-source-provenance'
+  | 'sensors-by-unit'
+  | 'unit-flow';
+
+export interface KnowledgeGraphHealth {
+  configured: boolean;
+  status: 'not_configured' | 'connecting' | 'connected' | 'error';
+  database: string;
+  nodeCount: number;
+  relationshipCount: number;
+  error?: string;
+}
+
 export interface RAGDocumentChunk {
   id: string;
   documentTitle: string;
   section: string;
-  category: 'process_spec' | 'fault_physics' | 'maintenance_sop' | 'safety_limits' | 'instrumentation';
+  category: 'process_spec' | 'fault_physics' | 'research_method' | 'maintenance_sop' | 'safety_limits' | 'instrumentation';
   content: string;
   keywords: string[];
   applicableFaults?: number[];
   applicableSensors?: string[];
+  source?: {
+    citation: string;
+    url: string;
+    verificationStatus: 'PRIMARY_SOURCE' | 'METADATA_VERIFIED' | 'SECONDARY_SOURCE' | 'UNVERIFIED_ILLUSTRATIVE';
+    note?: string;
+  };
 }
 
 export interface RAGSearchResult {
   chunk: RAGDocumentChunk;
   score: number;
   matchedKeywords: string[];
+  evidenceStatus: 'PRIMARY_SOURCE' | 'METADATA_VERIFIED' | 'SECONDARY_SOURCE' | 'UNVERIFIED_ILLUSTRATIVE';
+  retrievalMethod: 'BM25_LEXICAL_ENTITY';
 }
 
 export interface MaintenanceWorkOrder {
@@ -195,15 +264,84 @@ export interface MaintenanceWorkOrder {
   targetUnit: string;
   targetComponent: string;
   faultHypothesis: string;
-  confidence: number;
-  status: 'PROPOSED_PENDING_ENGINEER' | 'APPROVED' | 'REJECTED' | 'DISPATCHED_TO_N8N';
+  faultSource?: 'SIMULATOR_INJECTION' | 'MODEL_CANDIDATE' | 'TEP_CSV_XGBOOST';
+  simulatorFaultId?: number;
+  linkedAlarmId?: string;
+  modelScore: number | null;
+  status: 'PROPOSED_PENDING_ENGINEER' | 'APPROVED' | 'REJECTED' | 'DISPATCHED_TO_N8N' | 'DISPATCHED_TO_TECHNICIAN' | 'REPAIR_COMPLETE' | 'CLOSED';
   recommendedChecks: string[];
   requiredParts: { partNumber: string; description: string; quantity: number }[];
-  lockoutTagoutRequired: boolean;
+  lockoutTagoutRequired: boolean | null;
   estimatedDowntimeHours: number;
   costAvoidanceUsd: number;
   applicableSop: string;
+  sensorSnapshot?: { code: string; name: string; unit: string; actual: number; zScore: number }[];
+  ragEvidence?: { title: string; section: string; snippet: string; relevance: number; sourceStatus?: string; citation?: string; sourceUrl?: string }[];
+  attachedSop?: { title: string; section: string; snippet: string; sourceStatus?: string; citation?: string; sourceUrl?: string };
   engineerNotes?: string;
+  assignedTechnician?: string;
+  technicianNotes?: string;
+  repairedAt?: number;
+  closedBy?: string;
+  closedAt?: number;
+  closureNotes?: string;
+  riskScore?: number;
+  riskBand?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  triage?: {
+    expectedSeverity: number;
+    uncertainty: number;
+    uncertaintyBand: 'LOW' | 'MEDIUM' | 'HIGH';
+    reviewPriority: number;
+    evidenceGaps: string[];
+    scoreStatus: 'UNCALIBRATED_MODEL_SCORES';
+    policyVersion: 'risk-entropy-v1';
+  };
+  modelEvidence?: {
+    model: 'XGBoost';
+    explanationMethod: 'TreeSHAP';
+    faultScore: number;
+    classConfidence: number;
+    topSensors: { sensor: string; contribution: number; actual?: number; unit?: string }[];
+    replayFile?: string;
+  };
+  impactAnalysis?: {
+    primaryUnit: string | null;
+    connectedUnits: string[];
+    linkedSensors: string[];
+    linkedProcedures: string[];
+    interpretation: string;
+    graphSource: 'NEO4J' | 'LOCAL_FALLBACK';
+  };
+  replayFingerprint?: string;
+}
+
+export interface AlarmReviewRecord {
+  id: string;
+  variableId: string;
+  code: string;
+  name: string;
+  unit: string;
+  category: string;
+  alarm: 'WARN_LOW' | 'WARN_HIGH' | 'TRIP_LOW' | 'TRIP_HIGH';
+  sourceFaults: Array<{ id: number; code: string; name: string; primaryUnit: string; keySensors: string[] }>;
+  value: number;
+  status: 'ACTIVE' | 'ACKNOWLEDGED' | 'CLEARED_PENDING_REVIEW' | 'RESOLVED' | 'ARCHIVED';
+  firstSeenAt: number;
+  lastSeenAt: number;
+  note: string;
+  source?: 'SIMULATOR' | 'TEP_CSV_REPLAY';
+  sourceFingerprint?: string;
+  modelDiagnosis?: {
+    model: 'XGBoost';
+    candidateFaultId: number;
+    classConfidence: number;
+    explanationMethod: 'TreeSHAP';
+    topSensors: { sensor: string; contribution: number }[];
+    firstAlarmSampleIndex: number;
+  };
+  acknowledgedBy?: string;
+  resolvedBy?: string;
+  reviewedBy?: string;
 }
 
 export interface AgentExecutionLog {
@@ -218,6 +356,7 @@ export interface AgentExecutionLog {
 
 export interface OrchestrationReport {
   executionId: string;
+  agentExecutionMode: 'LOCAL_SEQUENTIAL' | 'CREWAI_REMOTE';
   timestamp: number;
   processHealthStatus: 'OPTIMAL' | 'STABLE' | 'DEGRADED' | 'CRITICAL';
   plantHealthIndex: number;
@@ -226,15 +365,15 @@ export interface OrchestrationReport {
     faultId: number;
     code: string;
     name: string;
-    probability: number;
+    score: number;
     severity: string;
-    ttfMinutes: number;
+    ttfMinutes: null;
   };
   diagnosisHypotheses: {
     rank: number;
     faultCode: string;
     faultName: string;
-    confidence: number;
+    score: number;
     evidenceChain: string[];
     affectedSubsystems: string[];
   }[];
@@ -246,7 +385,7 @@ export interface OrchestrationReport {
     snippet: string;
     relevance: number;
   }[];
-  maintenancePlan: MaintenanceWorkOrder;
+  maintenancePlan: MaintenanceWorkOrder | null;
   agentLogs: AgentExecutionLog[];
 }
 
@@ -259,6 +398,28 @@ export interface N8nWebhookEvent {
   httpStatus: number;
   payload: Record<string, any>;
   responseMessage: string;
+}
+
+export interface UnitEventAnalysisReport {
+  executionId: string;
+  agentExecutionMode: 'LOCAL_SEQUENTIAL' | 'CREWAI_REMOTE';
+  targetUnit: string;
+  telemetryTimestamp: number;
+  processHealthStatus: UnitHealthState['status'];
+  diagnosisEvidence: string[];
+  affectedSubsystems: string[];
+  shapAttributionSummary: string;
+  recommendedChecks: string[];
+  agentLogs: { agentName: string; role: string; timestamp: number; status: string; thought: string; actionTaken: string; outputSummary: string }[];
+}
+
+export type AuthRole = 'ADMIN' | 'ENGINEER' | 'OPERATOR' | 'TECHNICIAN';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+  role: AuthRole;
 }
 
 export interface ChatMessage {

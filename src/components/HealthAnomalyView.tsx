@@ -4,11 +4,6 @@ import {
   ShieldCheck,
   Activity,
   Layers,
-  Clock,
-  TrendingUp,
-  AlertTriangle,
-  Info,
-  CheckCircle,
 } from 'lucide-react';
 import { AnomalyReport, UnitHealthState } from '../types/index.js';
 
@@ -34,11 +29,10 @@ export const HealthAnomalyView: React.FC<HealthAnomalyViewProps> = ({
 
   const {
     anomalyScore,
-    threshold,
+    speThreshold,
     isAnomalous,
-    severity,
     speMetric,
-    t2Metric,
+    standardizedInputDistance,
     persistenceCount,
     topOffendingSensors,
     attributions,
@@ -51,13 +45,7 @@ export const HealthAnomalyView: React.FC<HealthAnomalyViewProps> = ({
         <div className="flex items-center gap-3">
           <div
             className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl shadow-lg ${
-              severity === 'EMERGENCY'
-                ? 'bg-rose-600 text-white animate-pulse'
-                : severity === 'CRITICAL'
-                ? 'bg-rose-500 text-white'
-                : severity === 'WARNING'
-                ? 'bg-amber-500 text-slate-950'
-                : 'bg-emerald-500 text-slate-950'
+              isAnomalous ? 'bg-amber-500 text-slate-950' : 'bg-emerald-500 text-slate-950'
             }`}
           >
             {isAnomalous ? <ShieldAlert className="w-6 h-6" /> : <ShieldCheck className="w-6 h-6" />}
@@ -66,30 +54,22 @@ export const HealthAnomalyView: React.FC<HealthAnomalyViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400">
-                Machine & Process Health Agent
+                Anomaly check
               </span>
               <span
                 className={`text-[10px] px-2 py-0.5 rounded font-bold font-mono border ${
-                  severity === 'EMERGENCY'
-                    ? 'bg-rose-950 text-rose-300 border-rose-700'
-                    : severity === 'CRITICAL'
-                    ? 'bg-rose-950 text-rose-300 border-rose-700'
-                    : severity === 'WARNING'
-                    ? 'bg-amber-950 text-amber-300 border-amber-700'
-                    : 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                  isAnomalous ? 'bg-amber-950 text-amber-300 border-amber-700' : 'bg-emerald-950 text-emerald-300 border-emerald-700'
                 }`}
               >
-                {severity} STATUS
+                {isAnomalous ? 'ABOVE LIMIT' : 'WITHIN LIMIT'}
               </span>
             </div>
             <h2 className="text-lg font-bold text-white mt-0.5">
               {isAnomalous
-                ? `Process Manifold Outlier Detected (Anomaly Score: ${anomalyScore.toFixed(1)}%)`
-                : 'All 41 Process Variables Within Normal Operating Manifold'}
+                ? `Reconstruction error is ${(anomalyScore / 100).toFixed(1)}x the calibrated limit`
+                : 'Within calibrated limit'}
             </h2>
-            <p className="text-xs text-slate-400 font-sans mt-0.5">
-              Autoencoder bottleneck reconstruction residual ({speMetric.toFixed(1)} SPE) evaluated against the 95% statistical control limit ({threshold.toFixed(1)}%).
-            </p>
+            <p className="text-xs text-slate-400 font-sans mt-0.5">SPE {speMetric.toFixed(2)} / limit {speThreshold.toFixed(2)} - ratio {(anomalyScore / 100).toFixed(2)}x</p>
           </div>
         </div>
 
@@ -101,8 +81,8 @@ export const HealthAnomalyView: React.FC<HealthAnomalyViewProps> = ({
           </div>
 
           <div className="bg-slate-950 px-3 py-2 rounded-lg border border-slate-800 text-center min-w-[100px]">
-            <span className="text-[10px] text-slate-500 block uppercase">Hotelling T²</span>
-            <strong className="text-base text-cyan-400 font-bold">{t2Metric.toFixed(1)}</strong>
+            <span className="text-[10px] text-slate-500 block uppercase">Input distance</span>
+            <strong className="text-base text-cyan-400 font-bold">{standardizedInputDistance.toFixed(2)}</strong>
           </div>
 
           <div className="bg-slate-950 px-3 py-2 rounded-lg border border-slate-800 text-center min-w-[120px]">
@@ -122,14 +102,11 @@ export const HealthAnomalyView: React.FC<HealthAnomalyViewProps> = ({
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Activity className="w-4 h-4 text-cyan-400" />
-                Sensor-Level Reconstruction Error Attribution
+                Top sensor contributions
               </h3>
-              <p className="text-xs text-slate-400 font-sans mt-0.5">
-                Isolates which specific sensors and transmitters deviate most from normal process manifold correlation.
-              </p>
             </div>
             <span className="text-xs font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-              Top 8 Attributions
+              Top 8
             </span>
           </div>
 
@@ -221,10 +198,6 @@ export const HealthAnomalyView: React.FC<HealthAnomalyViewProps> = ({
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400 font-sans">
-            <span className="font-bold text-slate-300 block mb-1">Health Agent Persistence Policy:</span>
-            Process alarm states trigger work order generation after <strong className="text-white">3 consecutive windows</strong> above control limit.
-          </div>
         </div>
       </div>
     </div>

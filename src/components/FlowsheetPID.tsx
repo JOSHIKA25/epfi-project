@@ -10,14 +10,22 @@ import {
   CheckCircle,
   AlertTriangle,
   Zap,
+  Bot,
+  ChevronRight,
 } from 'lucide-react';
-import { TelemetryPoint, TEPVariable, UnitHealthState, TEPFault } from '../types/index.js';
+import { TelemetryPoint, TEPVariable, UnitHealthState, TEPFault, UnitAgentAssessment, AnomalyReport, OrchestrationReport } from '../types/index.js';
 
 interface FlowsheetPIDProps {
   telemetry: TelemetryPoint | null;
   unitHealth: UnitHealthState[];
   activeFaults: TEPFault[];
   variables: TEPVariable[];
+  unitAgents: UnitAgentAssessment[];
+  anomalyReport: AnomalyReport | null;
+  runningAgentUnits: string[];
+  analysisReportsByUnit: Record<string, OrchestrationReport>;
+  orchestrationError: string | null;
+  onOpenAlarmCenter: () => void;
   onSelectVariable?: (variableId: string) => void;
   onInjectPresetFault?: (faultId: number) => void;
 }
@@ -27,6 +35,12 @@ export const FlowsheetPID: React.FC<FlowsheetPIDProps> = ({
   unitHealth,
   activeFaults,
   variables,
+  unitAgents,
+  anomalyReport,
+  runningAgentUnits,
+  analysisReportsByUnit,
+  orchestrationError,
+  onOpenAlarmCenter,
   onSelectVariable,
   onInjectPresetFault,
 }) => {
@@ -40,12 +54,59 @@ export const FlowsheetPID: React.FC<FlowsheetPIDProps> = ({
   const separatorHealth = unitHealth.find((u) => u.unit === 'separator');
   const stripperHealth = unitHealth.find((u) => u.unit === 'stripper');
   const compressorHealth = unitHealth.find((u) => u.unit === 'compressor');
+  const selectedHealth = unitHealth.find((u) => u.unit === selectedUnit);
+  const selectedAssessment = unitAgents.find((agent) => agent.unit === selectedUnit);
+  const selectedReport = selectedUnit ? analysisReportsByUnit[selectedUnit] : undefined;
+  const processOrder = ['reactor', 'condenser', 'separator', 'stripper', 'compressor'];
+  const processNames: Record<string, string> = {
+    reactor: 'Reactor', condenser: 'Condenser', separator: 'Separator', stripper: 'Stripper', compressor: 'Compressor',
+  };
+  const getTopSensor = (unit: string) => {
+    const assessment = unitAgents.find((agent) => agent.unit === unit);
+    const variableById = new Map(variables.map((variable) => [variable.id, variable]));
+    const abnormal = (assessment?.observations ?? [])
+      .filter((observation) => observation.alarm !== 'NORMAL' && observation.alarm !== 'UNAVAILABLE')
+      .sort((left, right) => {
+        const order = (alarm: string) => alarm.startsWith('TRIP') ? 2 : 1;
+        return order(right.alarm) - order(left.alarm);
+      });
+    if (abnormal[0]) {
+      const variable = variableById.get(abnormal[0].channelId);
+      return { id: abnormal[0].channelId, code: variable?.code ?? abnormal[0].channelId, value: abnormal[0].value, unit: variable?.unit ?? '', alarm: abnormal[0].alarm };
+    }
+    const attribution = (anomalyReport?.topOffendingSensors ?? [])
+      .filter((sensor) => variableById.get(sensor.varId)?.category === unit)
+      .sort((left, right) => right.percentContribution - left.percentContribution)[0];
+    if (attribution) {
+      return { id: attribution.varId, code: attribution.code, value: values[attribution.varId] ?? attribution.actual, unit: attribution.unit, alarm: 'Top deviation' };
+    }
+    return null;
+  };
 
-  const getAlarmColor = (varId: string) => {
+  const getAlarmColors = (varId: string) => {
     const al = alarms[varId];
-    if (al === 'TRIP_HIGH' || al === 'TRIP_LOW') return 'text-rose-400 bg-rose-950/80 border-rose-600 animate-pulse';
-    if (al === 'WARN_HIGH' || al === 'WARN_LOW') return 'text-amber-400 bg-amber-950/80 border-amber-600';
-    return 'text-cyan-300 bg-slate-900/90 border-slate-700';
+    if (al === 'TRIP_HIGH' || al === 'TRIP_LOW') {
+      return { fill: '#fb7185', stroke: '#e11d48', className: 'animate-pulse' };
+    }
+    if (al === 'WARN_HIGH' || al === 'WARN_LOW') {
+      return { fill: '#fbbf24', stroke: '#d97706', className: '' };
+    }
+    return { fill: '#38bdf8', stroke: '#334155', className: '' };
+  };
+
+  const selectSensor = (variableId: string) => onSelectVariable?.(variableId);
+  const handleSensorKeyDown = (event: React.KeyboardEvent<SVGGElement>, variableId: string) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectSensor(variableId);
+    }
+  };
+
+  const getHealthBadgeClass = (status?: UnitHealthState['status']) => {
+    if (status === 'CRITICAL') return 'bg-rose-950 text-rose-300 border-rose-700';
+    if (status === 'DEGRADED') return 'bg-amber-950 text-amber-300 border-amber-700';
+    if (status === 'OPTIMAL') return 'bg-emerald-950 text-emerald-300 border-emerald-700';
+    return 'bg-slate-800 text-cyan-300 border-slate-700';
   };
 
   const getUnitStatusBorder = (state?: UnitHealthState) => {
@@ -64,7 +125,7 @@ export const FlowsheetPID: React.FC<FlowsheetPIDProps> = ({
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <Activity className="w-4 h-4 text-cyan-400" />
-              Tennessee Eastman Process (TEP) - Supervisory P&ID Diagram
+              Plant overview
             </h2>
             <span className="text-[11px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
               Interactive SCADA Mimic
@@ -87,6 +148,15 @@ export const FlowsheetPID: React.FC<FlowsheetPIDProps> = ({
             <div className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
               <span>Steam Reboiler</span>
+            </div>
+            <span className="hidden xl:inline text-slate-700">|</span>
+            <div className="flex items-center gap-1.5" title="Telemetry readouts change color when an alarm is active">
+              <div className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+              <span>Normal</span>
+              <div className="w-2.5 h-2.5 rounded-full bg-amber-400 ml-1" />
+              <span>Warning</span>
+              <div className="w-2.5 h-2.5 rounded-full bg-rose-400 ml-1" />
+              <span>Trip</span>
             </div>
           </div>
         </div>
@@ -316,77 +386,77 @@ export const FlowsheetPID: React.FC<FlowsheetPIDProps> = ({
             {/* --- ON-SCREEN INSTRUMENT TELEMETRY LABELS --- */}
 
             {/* XMEAS_9: Reactor Temp */}
-            <g transform="translate(190, 270)">
-              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke="#334155" />
+            <g transform="translate(190, 270)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open reactor temperature XMEAS 9 in telemetry" onClick={() => selectSensor('XMEAS_9')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMEAS_9')}>
+              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke={getAlarmColors('XMEAS_9').stroke} />
               <text x="6" y="13" fill="#94a3b8" fontSize="9">XMEAS(9) Temp</text>
-              <text x="6" y="25" fill="#38bdf8" fontWeight="bold" fontSize="11">
+              <text x="6" y="25" fill={getAlarmColors('XMEAS_9').fill} fontWeight="bold" fontSize="11" className={getAlarmColors('XMEAS_9').className}>
                 {values['XMEAS_9']?.toFixed(1) ?? '120.4'} °C
               </text>
             </g>
 
             {/* XMEAS_7: Reactor Pressure */}
-            <g transform="translate(190, 305)">
-              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke="#334155" />
+            <g transform="translate(190, 305)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open reactor pressure XMEAS 7 in telemetry" onClick={() => selectSensor('XMEAS_7')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMEAS_7')}>
+              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke={getAlarmColors('XMEAS_7').stroke} />
               <text x="6" y="13" fill="#94a3b8" fontSize="9">XMEAS(7) Press</text>
-              <text x="6" y="25" fill="#38bdf8" fontWeight="bold" fontSize="11">
+              <text x="6" y="25" fill={getAlarmColors('XMEAS_7').fill} fontWeight="bold" fontSize="11" className={getAlarmColors('XMEAS_7').className}>
                 {values['XMEAS_7']?.toFixed(0) ?? '2705'} kPa
               </text>
             </g>
 
             {/* XMV_10: Reactor Coolant Valve */}
-            <g transform="translate(250, 440)">
-              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke="#334155" />
+            <g transform="translate(250, 440)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open reactor coolant valve XMV 10 in telemetry" onClick={() => selectSensor('XMV_10')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMV_10')}>
+              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke={getAlarmColors('XMV_10').stroke} />
               <text x="6" y="13" fill="#10b981" fontSize="9">XMV(10) Cool Vlv</text>
-              <text x="6" y="25" fill="#10b981" fontWeight="bold" fontSize="11">
+              <text x="6" y="25" fill={getAlarmColors('XMV_10').fill} fontWeight="bold" fontSize="11" className={getAlarmColors('XMV_10').className}>
                 {values['XMV_10']?.toFixed(1) ?? '41.1'} %
               </text>
             </g>
 
             {/* XMEAS_11: Separator Temp */}
-            <g transform="translate(585, 230)">
-              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke="#334155" />
+            <g transform="translate(585, 230)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open separator temperature XMEAS 11 in telemetry" onClick={() => selectSensor('XMEAS_11')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMEAS_11')}>
+              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke={getAlarmColors('XMEAS_11').stroke} />
               <text x="6" y="13" fill="#94a3b8" fontSize="9">XMEAS(11) Temp</text>
-              <text x="6" y="25" fill="#38bdf8" fontWeight="bold" fontSize="11">
+              <text x="6" y="25" fill={getAlarmColors('XMEAS_11').fill} fontWeight="bold" fontSize="11" className={getAlarmColors('XMEAS_11').className}>
                 {values['XMEAS_11']?.toFixed(1) ?? '80.1'} °C
               </text>
             </g>
 
             {/* XMEAS_10: Purge Rate */}
-            <g transform="translate(480, 15)">
-              <rect x="0" y="0" width="95" height="30" rx="5" fill="#020617" stroke="#334155" />
+            <g transform="translate(480, 15)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open purge rate XMEAS 10 in telemetry" onClick={() => selectSensor('XMEAS_10')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMEAS_10')}>
+              <rect x="0" y="0" width="95" height="30" rx="5" fill="#020617" stroke={getAlarmColors('XMEAS_10').stroke} />
               <text x="6" y="13" fill="#f59e0b" fontSize="9">XMEAS(10) Purge</text>
-              <text x="6" y="25" fill="#f59e0b" fontWeight="bold" fontSize="11">
+              <text x="6" y="25" fill={getAlarmColors('XMEAS_10').fill} fontWeight="bold" fontSize="11" className={getAlarmColors('XMEAS_10').className}>
                 {values['XMEAS_10']?.toFixed(3) ?? '0.337'} kscmh
               </text>
             </g>
 
             {/* XMEAS_20: Compressor Work */}
-            <g transform="translate(300, 135)">
-              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke="#334155" />
+            <g transform="translate(300, 135)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open compressor power XMEAS 20 in telemetry" onClick={() => selectSensor('XMEAS_20')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMEAS_20')}>
+              <rect x="0" y="0" width="85" height="30" rx="5" fill="#020617" stroke={getAlarmColors('XMEAS_20').stroke} />
               <text x="6" y="13" fill="#94a3b8" fontSize="9">XMEAS(20) Power</text>
-              <text x="6" y="25" fill="#38bdf8" fontWeight="bold" fontSize="11">
+              <text x="6" y="25" fill={getAlarmColors('XMEAS_20').fill} fontWeight="bold" fontSize="11" className={getAlarmColors('XMEAS_20').className}>
                 {values['XMEAS_20']?.toFixed(0) ?? '341'} kW
               </text>
             </g>
 
             {/* XMEAS_29: Finished Product Purity */}
-            <g transform="translate(830, 440)">
-              <rect x="0" y="0" width="110" height="35" rx="5" fill="#020617" stroke="#10b981" />
+            <g transform="translate(830, 440)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open product purity XMEAS 29 in telemetry" onClick={() => selectSensor('XMEAS_29')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMEAS_29')}>
+              <rect x="0" y="0" width="110" height="35" rx="5" fill="#020617" stroke={getAlarmColors('XMEAS_29').stroke} />
               <text x="6" y="14" fill="#10b981" fontSize="9" fontWeight="bold">XMEAS(29) Product G</text>
-              <text x="6" y="29" fill="#10b981" fontWeight="bold" fontSize="13">
+              <text x="6" y="29" fill={getAlarmColors('XMEAS_29').fill} fontWeight="bold" fontSize="13" className={getAlarmColors('XMEAS_29').className}>
                 {values['XMEAS_29']?.toFixed(1) ?? '53.8'} mol %
               </text>
             </g>
 
             {/* Stream 1 Feed Badge */}
-            <g transform="translate(10, 65)">
+            <g transform="translate(10, 65)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open feed A flow XMEAS 1 in telemetry" onClick={() => selectSensor('XMEAS_1')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMEAS_1')}>
               <text x="0" y="10" fill="#94a3b8" fontSize="9">Stream 1 (A)</text>
-              <text x="0" y="22" fill="#22d3ee" fontWeight="bold" fontSize="10">{values['XMEAS_1']?.toFixed(3)} kscmh</text>
+              <text x="0" y="22" fill={getAlarmColors('XMEAS_1').fill} fontWeight="bold" fontSize="10" className={getAlarmColors('XMEAS_1').className}>{values['XMEAS_1']?.toFixed(3)} kscmh</text>
             </g>
             {/* Stream 4 Feed Badge */}
-            <g transform="translate(10, 220)">
+            <g transform="translate(10, 220)" className="cursor-pointer" role="button" tabIndex={0} aria-label="Open feed A and C flow XMEAS 4 in telemetry" onClick={() => selectSensor('XMEAS_4')} onKeyDown={(event) => handleSensorKeyDown(event, 'XMEAS_4')}>
               <text x="0" y="10" fill="#94a3b8" fontSize="9">Stream 4 (A+C)</text>
-              <text x="0" y="22" fill="#22d3ee" fontWeight="bold" fontSize="10">{values['XMEAS_4']?.toFixed(2)} kscmh</text>
+              <text x="0" y="22" fill={getAlarmColors('XMEAS_4').fill} fontWeight="bold" fontSize="10" className={getAlarmColors('XMEAS_4').className}>{values['XMEAS_4']?.toFixed(2)} kscmh</text>
             </g>
           </svg>
         </div>
@@ -434,6 +504,45 @@ export const FlowsheetPID: React.FC<FlowsheetPIDProps> = ({
 
       {/* Side Unit Diagnostic Inspector */}
       <div className="w-full xl:w-80 flex flex-col gap-3">
+        <div className="bg-slate-900 rounded-xl border border-slate-800 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Unit-by-unit monitor</div>
+              <div className="text-xs text-slate-500">Process path; separator splits into two branches</div>
+            </div>
+            <button onClick={onOpenAlarmCenter} className="rounded border border-rose-800/70 bg-rose-950/50 px-2 py-1 text-[10px] font-semibold text-rose-200 hover:bg-rose-900/60">
+              Review alarms
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {processOrder.map((unit, index) => {
+              const assessment = unitAgents.find((agent) => agent.unit === unit);
+              const topSensor = getTopSensor(unit);
+              const running = runningAgentUnits.includes(unit);
+              const flagged = (assessment?.activeAlarmsCount ?? 0) > 0;
+              return (
+                <React.Fragment key={unit}>
+                  <button onClick={() => setSelectedUnit(unit)} className={`w-full rounded-lg border p-2 text-left transition ${selectedUnit === unit ? 'border-cyan-600 bg-cyan-950/25' : flagged ? 'border-rose-800/70 bg-rose-950/20' : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-100">{index + 1}. {processNames[unit]}</span>
+                      <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${running ? 'bg-cyan-900 text-cyan-200' : flagged ? 'bg-rose-950 text-rose-200' : assessment?.digitalGate === 'HOLD_REVIEW' ? 'bg-amber-950 text-amber-200' : 'bg-emerald-950 text-emerald-200'}`}>
+                        {running ? 'AGENT ANALYZING' : flagged ? `${assessment?.activeAlarmsCount} ALARM${assessment?.activeAlarmsCount === 1 ? '' : 'S'}` : assessment?.digitalGate === 'HOLD_REVIEW' ? 'REVIEW HOLD' : 'MONITORING'}
+                      </span>
+                    </div>
+                    <div className="mt-1 truncate text-[10px] text-slate-400">
+                      {topSensor ? <><span className={topSensor.alarm.startsWith('TRIP') ? 'text-rose-300' : topSensor.alarm === 'Top deviation' ? 'text-cyan-300' : 'text-amber-300'}>{topSensor.code}</span> · {topSensor.value === null ? 'value unavailable' : `${topSensor.value.toFixed(2)} ${topSensor.unit}`} · {topSensor.alarm}</> : 'No leading sensor deviation'}
+                    </div>
+                    {assessment?.blockedByUnits.length ? <div className="mt-1 text-[9px] text-amber-300">Waiting on {assessment.blockedByUnits.map((name) => processNames[name] ?? name).join(', ')}</div> : null}
+                  </button>
+                  {index === 0 || index === 1 ? <div className="pl-4 text-[9px] leading-none text-slate-600">↓ next unit check</div> : null}
+                  {index === 2 ? <div className="pl-4 text-[9px] leading-none text-slate-600">↙ liquid · recycle branch ↗</div> : null}
+                </React.Fragment>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[9px] leading-relaxed text-slate-500">Each monitor checks its mapped sensors. A hold pauses downstream digital review; it does not stop physical flow.</p>
+        </div>
+
         {/* Selected Unit Health Card */}
         <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
@@ -442,15 +551,23 @@ export const FlowsheetPID: React.FC<FlowsheetPIDProps> = ({
               <h3 className="text-base font-bold text-white capitalize">{selectedUnit} System</h3>
             </div>
             <span
-              className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
-                selectedUnit === 'reactor' && reactorHealth?.status === 'CRITICAL'
-                  ? 'bg-rose-950 text-rose-300 border border-rose-700'
-                  : 'bg-slate-800 text-cyan-400 border border-slate-700'
-              }`}
+              className={`px-2 py-0.5 rounded border text-xs font-mono font-bold ${getHealthBadgeClass(selectedHealth?.status)}`}
             >
-              {selectedUnit === 'reactor' ? `${reactorHealth?.healthIndex ?? 95}% Health` : 'Operational'}
+              {selectedHealth
+                ? `${selectedHealth.status} · ${selectedHealth.healthIndex}%`
+                : 'Health unavailable'}
             </span>
           </div>
+          {selectedHealth && (
+            <div className="mb-3 grid grid-cols-2 gap-2 text-[11px]">
+              <div className="rounded border border-slate-800 bg-slate-950/70 p-2 text-slate-400">
+                Active alarms <strong className="ml-1 text-white">{selectedHealth.activeAlarmsCount}</strong>
+              </div>
+              <div className="rounded border border-slate-800 bg-slate-950/70 p-2 text-slate-400">
+                Anomaly indicator <strong className="ml-1 text-white">{selectedHealth.anomalyScore.toFixed(1)}%</strong>
+              </div>
+            </div>
+          )}
 
           {/* Unit Key Metrics */}
           {selectedUnit === 'reactor' && (
@@ -545,6 +662,34 @@ export const FlowsheetPID: React.FC<FlowsheetPIDProps> = ({
               </div>
             </div>
           )}
+        </div>
+
+        <div className="bg-slate-900 rounded-xl border border-slate-800 p-3">
+          <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-white">
+            <Bot className="h-4 w-4 text-cyan-300" />
+            {processNames[selectedUnit ?? 'reactor']} agent activity
+          </div>
+          {runningAgentUnits.includes(selectedUnit ?? '') ? (
+            <div className="flex items-center gap-2 rounded-lg border border-cyan-800 bg-cyan-950/30 p-2 text-xs text-cyan-100">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" /> Collecting unit evidence and preparing a diagnostic report…
+            </div>
+          ) : selectedReport ? (
+            <div className="space-y-2 text-xs">
+              <div className="rounded-lg border border-emerald-900 bg-emerald-950/30 p-2 text-emerald-200">Report ready · {selectedReport.agentExecutionMode === 'CREWAI_REMOTE' ? 'CrewAI service' : 'local sequential analysis'}</div>
+              <p className="text-slate-300">{selectedReport.maintenancePlan?.faultHypothesis ?? selectedReport.diagnosisHypotheses[0]?.faultName ?? 'No supported fault candidate was found.'}</p>
+              {selectedReport.maintenancePlan?.recommendedChecks.slice(0, 2).map((check) => <div key={check} className="text-[10px] text-slate-400">• {check}</div>)}
+              <details className="rounded border border-slate-800 bg-slate-950/60 p-2">
+                <summary className="cursor-pointer text-[10px] text-cyan-200">Show agent hand-off log</summary>
+                <div className="mt-2 space-y-1.5">{selectedReport.agentLogs.map((log) => <div key={`${log.agentName}-${log.timestamp}`} className="border-l border-slate-700 pl-2"><strong className="text-slate-300">{log.agentName}:</strong> <span className="text-slate-400">{log.outputSummary}</span></div>)}</div>
+              </details>
+            </div>
+          ) : selectedAssessment?.status === 'MONITORING' ? (
+            <p className="text-xs text-slate-400">Unit monitor is checking its assigned channels. A deeper agent report runs when an abnormal condition is detected.</p>
+          ) : (
+            <p className="text-xs text-slate-400">Unit needs review. The monitor has identified {selectedAssessment?.activeAlarmsCount ?? 0} alarm(s); a full report may be waiting on the plant event cooldown.</p>
+          )}
+          {orchestrationError && <p className="mt-2 text-[10px] text-rose-300">Agent analysis issue: {orchestrationError}</p>}
+          <button onClick={onOpenAlarmCenter} className="mt-3 inline-flex items-center gap-1 text-[10px] font-semibold text-cyan-300 hover:text-cyan-100">Open alarm notes and resolution <ChevronRight className="h-3 w-3" /></button>
         </div>
 
         {/* Plant Subsystem Health Summary */}

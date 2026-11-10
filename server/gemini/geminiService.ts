@@ -6,8 +6,8 @@
  * 2. TEP / Digital Twin questions -> grounded response using:
  *    - Live telemetry
  *    - Autoencoder anomaly detection
- *    - XGBoost prediction
- *    - SHAP explanations
+ *    - Unvalidated physics-signature fault score
+ *    - Heuristic sensor attribution
  *    - Knowledge Graph
  *    - RAG engineering documentation
  *    - Maintenance work orders
@@ -20,7 +20,7 @@ import { GoogleGenAI } from '@google/genai';
 
 import { tepSimulator } from '../tep/tepSimulator.ts';
 import { autoencoderDetector } from '../ml/autoencoder.ts';
-import { xgboostPredictor } from '../ml/xgboostPredictor.ts';
+import { physicsSignaturePredictor } from '../ml/physicsSignaturePredictor.ts';
 import { shapEngine } from '../ml/shapEngine.ts';
 import { tepKnowledgeGraph } from '../kg/neo4jGraph.ts';
 import { tepRagEngine } from '../rag/ragCorpus.ts';
@@ -329,11 +329,11 @@ ANSWER:
     );
 
     // Run failure prediction
-    const prediction = xgboostPredictor.predict(
+    const prediction = physicsSignaturePredictor.predict(
       tepSimulator.getHistory(25),
     );
 
-    // Generate SHAP explanation
+    // Generate prototype sensor attribution
     const shap = shapEngine.explainPrediction(
       prediction,
       anomaly,
@@ -347,8 +347,7 @@ ANSWER:
     );
 
     // Retrieve relevant Knowledge Graph section
-    const kgSubGraph =
-      tepKnowledgeGraph.getSubgraphForFault(
+    const kgSubGraph = await tepKnowledgeGraph.getSubgraphForFault(
         prediction.topPrediction.faultId || 4,
       );
 
@@ -401,22 +400,15 @@ ANSWER:
         predictedFault:
           `${prediction.topPrediction.code}: ${prediction.topPrediction.name}`,
 
-        probability:
-          `${(prediction.topPrediction.probability * 100).toFixed(1)}%`,
+        relativeScore:
+          `${(prediction.topPrediction.score * 100).toFixed(1)}% (uncalibrated)`,
 
         severity:
           prediction.topPrediction.severity,
 
-        ttfMinutes:
-          prediction.topPrediction.ttfMinutes,
-
-        gruConfidence:
-          `${(prediction.comparison.gru.confidence * 100).toFixed(1)}%`,
-
-        modelAgreement:
-          prediction.comparison.agreement
-            ? 'CONVERGENT'
-            : 'DIVERGENT',
+        validationStatus: prediction.modelValidation.status,
+        supportedFaultIds: prediction.modelValidation.supportedFaultIds,
+        timeToFailure: 'Unavailable; no validated TTF model is configured.',
       },
 
       xaiAttributions:
@@ -446,6 +438,9 @@ ANSWER:
           section: r.chunk.section,
           snippet:
             r.chunk.content.slice(0, 180) + '...',
+          sourceStatus: r.evidenceStatus,
+          citation: r.chunk.source?.citation || 'No verified citation attached',
+          sourceUrl: r.chunk.source?.url || null,
         })),
 
       pendingWorkOrders:
@@ -475,8 +470,8 @@ You are part of an Industrial Digital Twin and Predictive Maintenance system.
 You have access to:
 - Live process telemetry
 - Autoencoder anomaly detection
-- XGBoost failure prediction
-- SHAP explainability
+- Unvalidated physics-signature fault score
+- Heuristic sensor attribution
 - Knowledge Graph relationships
 - RAG engineering documentation
 - Maintenance work orders
@@ -491,6 +486,9 @@ IMPORTANT RESPONSE RULES:
 6. Do not invent faults.
 7. Do not invent predictions.
 8. Do not invent maintenance actions.
+8a. Treat RAG entries marked UNVERIFIED_ILLUSTRATIVE as search examples only; never present their limits or procedures as verified facts.
+8b. Cite retrieved document title, section, and source status. If only unverified entries match, say that verified documentation was not found.
+8c. If the RAG documentation list is empty, say no relevant document was retrieved; do not imply that a manual, SOP, or safety limit supports the answer.
 9. Clearly distinguish:
    - measured telemetry
    - ML prediction
@@ -588,18 +586,17 @@ ${
             {
               type: 'PREDICTION',
               title:
-                `XGBoost Prediction: ${prediction.topPrediction.code}`,
+                `Prototype heuristic score: ${prediction.topPrediction.code}`,
               details:
                 `${(
-                  prediction.topPrediction.probability * 100
-                ).toFixed(1)}% confidence, ` +
-                `Estimated TTF: ${prediction.topPrediction.ttfMinutes} min`,
+                  prediction.topPrediction.score * 100
+                ).toFixed(1)}% relative score (not calibrated); TTF unavailable.`,
             },
 
             {
               type: 'XAI_SHAP',
               title:
-                `SHAP Driver: ${
+                `Heuristic attribution: ${
                   shap.topContributions[0]?.code ||
                   'XMEAS(9)'
                 }`,
@@ -607,15 +604,13 @@ ${
                 shap.summaryText,
             },
 
-            {
-              type: 'RAG_DOC',
-              title:
-                ragResults[0]?.chunk.documentTitle ||
-                'Downs & Vogel TEP Manual',
-              details:
-                ragResults[0]?.chunk.section ||
-                'Process Specifications',
-            },
+            ...(ragResults[0]
+              ? [{
+                  type: 'RAG_DOC' as const,
+                  title: ragResults[0].chunk.documentTitle,
+                  details: `${ragResults[0].chunk.section} · ${ragResults[0].evidenceStatus} · ${ragResults[0].chunk.source.url}`,
+                }]
+              : []),
 
             {
               type: 'KNOWLEDGE_GRAPH',
@@ -678,20 +673,20 @@ ${
     else {
       fallbackText =
         `The current prediction is **${topPred.code}: ${topPred.name}** ` +
-        `with ${(topPred.probability * 100).toFixed(1)}% probability ` +
+        `with ${(topPred.score * 100).toFixed(1)}% relative heuristic score (not calibrated) ` +
         `and **${topPred.severity.toUpperCase()}** severity.\n\n` +
 
-        `The estimated time-to-failure is approximately ` +
-        `**${topPred.ttfMinutes} minutes**.\n\n` +
+        `No validated time-to-failure estimate is available.\n\n` +
 
-        `The strongest SHAP contributor is ` +
+        `The strongest heuristic sensor attribution is ` +
         `**${topShap?.code || 'XMEAS(9)'} ` +
         `(${topShap?.name || 'Reactor Temperature'})**, ` +
         `with an estimated impact of ` +
         `**${topShap?.percentImpact ?? 'N/A'}%**.\n\n` +
 
-        `Relevant engineering documentation: ` +
-        `${topRag?.chunk.documentTitle || 'TEP documentation'}.`;
+        (topRag
+          ? `Relevant retrieved reference: ${topRag.chunk.documentTitle} — ${topRag.chunk.section} (${topRag.evidenceStatus}).`
+          : 'No relevant document was found in the current TEP reference collection.');
     }
 
     return {
@@ -710,33 +705,30 @@ ${
         {
           type: 'PREDICTION',
           title:
-            `XGBoost Prediction: ${topPred.code}`,
+            `Prototype heuristic score: ${topPred.code}`,
           details:
             `${(
-              topPred.probability * 100
-            ).toFixed(1)}% confidence, ` +
-            `TTF: ${topPred.ttfMinutes} min`,
+              topPred.score * 100
+            ).toFixed(1)}% relative score (not calibrated); TTF unavailable.`,
         },
 
         {
           type: 'XAI_SHAP',
           title:
-            `SHAP Driver: ${
+            `Heuristic attribution: ${
               topShap?.code || 'XMEAS(9)'
             }`,
           details:
             shap.summaryText,
         },
 
-        {
-          type: 'RAG_DOC',
-          title:
-            topRag?.chunk.documentTitle ||
-            'TEP Safe Operating Limits',
-          details:
-            topRag?.chunk.section ||
-            'Standard Operating Procedures',
-        },
+        ...(topRag
+          ? [{
+              type: 'RAG_DOC' as const,
+              title: topRag.chunk.documentTitle,
+              details: `${topRag.chunk.section} · ${topRag.evidenceStatus} · ${topRag.chunk.source.url}`,
+            }]
+          : []),
       ],
     };
   }

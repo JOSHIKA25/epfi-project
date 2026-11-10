@@ -1,0 +1,845 @@
+TEP DIGITAL TWIN PROJECT
+COMPLETE FLOW, METHODS, METRICS, AND FILE GUIDE
+Prepared: 28 October 2026
+
+======================================================================
+1. PROJECT SUMMARY
+======================================================================
+
+This project is an integrated research and demonstration prototype for
+Tennessee Eastman Process (TEP) monitoring, fault analysis, and human-reviewed
+maintenance workflow.
+
+It has two related but different data paths:
+
+1) Application demonstration path
+   The built-in web application generates simplified synthetic process
+   telemetry, displays unit health and alarms, runs evidence-review steps,
+   and supports Operator/Engineer/Technician workflow. It does not connect to
+   a physical plant.
+
+2) Offline benchmark evaluation path
+   Python experiments use separate labeled CSV datasets to train/evaluate
+   anomaly detection and fault diagnosis. The best saved multi-window
+   classifier result is 91.2% final-window run-level accuracy. This does not
+   mean the complete alarm-time pipeline or live application has 91.2%
+   accuracy. The separate alarm-time end-to-end correct-diagnosis result is
+   30.2%.
+
+Recommended project description:
+“A TEP-based decision-support research prototype that combines simulated
+process monitoring, offline machine-learning evaluation, evidence context,
+and human-approved maintenance workflow.”
+
+It is not a validated industrial control system, safety system, or live
+plant digital twin.
+
+
+======================================================================
+2. COMPLETE END-TO-END FLOW
+======================================================================
+
+2.1 High-level flow
+
+LIVE/DEMONSTRATION PATH
+  Built-in TEP simulator
+       -> unit telemetry and health monitors
+       -> alarm/rule checks and anomaly summary
+       -> local analysis sequence (default)
+       -> fault candidate, sensor attribution, graph context, references
+       -> Operator acknowledgement
+       -> Engineer work-order review and approval/rejection
+       -> Technician repair record
+       -> Engineer closure
+       -> optional n8n event (only when configured)
+
+OFFLINE BENCHMARK PATH
+  Labeled TEP training CSVs
+       -> data/channel alignment and run grouping
+       -> train/validation/test separation by complete run
+       -> temporal window features
+       -> XGBoost model training
+       -> threshold/confidence selection using validation only
+       -> one-time held-out CSV test evaluation
+       -> accuracy, macro-F1, detection metrics, per-fault results
+
+ALARM-TIME BENCHMARK PATH
+  Normal-only model fitting/calibration
+       -> process test run one time step at a time
+       -> autoencoder reconstruction score
+       -> two consecutive threshold exceedances = first alarm
+       -> extract the 25 samples ending at first alarm
+       -> XGBoost fault-class prediction and TreeSHAP attribution
+       -> compare detection and diagnosis against run labels
+
+The three paths must not be merged into a single “overall accuracy.”
+
+
+2.2 Application flow, step by step
+
+Step 1 - Start the application
+  Start the TypeScript web application. The Python CrewAI/ML service is only
+  needed for optional remote CrewAI or the ML service endpoints used by some
+  replay workflows. The default local diagnostic sequence does not require an
+  LLM API key.
+
+Step 2 - Choose the telemetry source
+  A) Fault Lab / built-in dashboard: the application simulator creates
+     synthetic readings in server/tep/tepSimulator.ts.
+  B) Data Replay: the user maps and replays a labeled TEP CSV. This is a
+     benchmark replay and is not the built-in simulator's live signal.
+
+Step 3 - Monitor unit health and alarms
+  Unit monitors display readings for reactor, condenser, separator, stripper,
+  and compressor. Existing alarm/rule logic reports health or abnormal state.
+  Assessments are software-only advisory indicators; they do not halt physical
+  flow or control PLC/DCS behavior.
+
+Step 4 - Run the default analysis sequence
+  1. Process health and anomaly scoring.
+  2. Fault prediction using the active supported predictor/evidence.
+  3. Heuristic sensor attribution.
+  4. Knowledge-graph diagnosis context.
+  5. RAG-backed maintenance recommendation.
+
+  The order is a software evidence-review workflow. The default is local and
+  deterministic. A local step is not necessarily a separate independent AI
+  model. The graph, retrieved text, feature importance, and agent prose are
+  supporting context; none alone proves physical cause.
+
+Step 5 - Optional unit specialist workflow / CrewAI
+  Unit specialists follow process-topology review order:
+  Reactor -> Condenser -> Separator -> Stripper liquid branch
+                                  \-> Compressor recycle branch
+                                       (recycle returns to Reactor)
+  -> Plant Coordinator
+
+  The five unit specialists plus Plant Coordinator produce sequential review
+  handoffs in remote CrewAI mode. They review supplied telemetry and evidence;
+  they are not plant controllers. Remote mode requires service/provider
+  configuration. On remote failure, the application falls back to local
+  analysis and records the failure. Plant-event chains are throttled by the
+  configured cooldown.
+
+Step 6 - Create/review an incident
+  Simulator-injected faults may create tickets using the known injection
+  label; the source must be shown as simulator injection, not an ML discovery.
+  In ordinary operation/replay, an event depends on configured thresholds and
+  supported model evidence. A benchmark replay result must remain labeled as
+  replay evidence.
+
+Step 7 - Human role workflow
+  Operator: review event, add an observation, acknowledge.
+  Engineer: review evidence, create/review a work order, write notes, approve
+            or reject. Only an approved order can be dispatched.
+  Technician: record performed repair.
+  Engineer: review repair notes and close the work order.
+
+Step 8 - Optional n8n notification
+  If N8N_WEBHOOK_URL is absent, the result is SIMULATED and no external system
+  receives a message.
+  If configured, the application sends event types such as CRITICAL_ALARM or
+  MAINTENANCE_WORK_ORDER to the webhook. The n8n workflow must route the event
+  to its intended downstream destination (for example email or chat).
+  HTTP 2xx confirms webhook acceptance only. Verify the n8n Executions record
+  and the destination/recipient before claiming delivery.
+
+
+2.3 Offline multi-window diagnosis, step by step
+
+1. Read the labeled training and testing CSVs.
+2. Align the experiment to 38 channels: XMEAS 1-27 and XMV 1-11.
+3. Treat a complete simulation run as the grouped evaluation unit.
+4. Separate complete runs into training, validation, and held-out testing.
+   All windows from one run stay in the same split; this avoids leakage of
+   highly related windows from one simulation between train and test.
+5. For each run, make four 25-sample windows ending at samples 200, 300, 400,
+   and 500.
+6. For every channel/window, compute last, mean, standard deviation, slope.
+   38 channels x 4 statistics = 152 feature values for each window.
+7. Train XGBoost on labeled windows/classes. Save validation performance and
+   use early stopping as configured in the experiment.
+8. Select the binary fault threshold and confidence/abstention gate using
+   validation only.
+9. Freeze the gates and evaluate once on the held-out test set.
+10. Report run-level accuracy, macro-F1, binary fault recall, normal FAR,
+    unknown predictions, per-class metrics, and confusion matrix.
+
+This offline multi-window experiment is a research candidate. README.md says
+it does not replace the active/serving predictor. Do not say that the live app
+is automatically running this model unless its serving integration is
+implemented and demonstrated.
+
+
+2.4 Alarm-time detection-plus-diagnosis, step by step
+
+1. Fit the MLP autoencoder on normal-operation data only.
+2. Standardize the current sensor row using training-fitted parameters.
+3. Reconstruct that row and calculate squared reconstruction error.
+4. Compare error to the normal-calibrated threshold; the pipeline uses two
+   consecutive exceedances to raise an alarm.
+5. Use the assumed fault onset convention (sample 161 in the recorded
+   evaluation); verify it against the exact dataset release.
+6. At the first alarm, take the 25 samples ending at that alarm.
+7. Extract the pipeline's 52-variable temporal features and send the window
+   to the alarm-time XGBoost classifier.
+8. Use TreeSHAP to rank model feature contributions for that prediction.
+9. Score detection, delay, diagnosis among detected runs, and end-to-end
+   correct diagnosis across all evaluated fault runs.
+
+Important: the alarm-time experiment uses a 52-variable setup, while the
+multi-window 91.2% final-window experiment uses 38 aligned channels. They are
+different experiment configurations and their percentages are not directly
+interchangeable.
+
+
+======================================================================
+3. METHODS AND FORMULAS
+======================================================================
+
+3.1 Data grouping and leakage prevention
+
+Let r be a complete simulation run and W(r) its derived windows. Split by run:
+  TrainRuns intersect ValidationRuns = empty
+  TrainRuns intersect TestRuns       = empty
+  ValidationRuns intersect TestRuns = empty
+
+Every window derived from run r remains in the same partition. Row-wise
+random splitting would risk placing near-duplicate temporal windows from one
+run in both training and test and would inflate evaluation.
+
+Data columns used for the 38-channel diagnosis experiment:
+  XMEAS 1 through XMEAS 27 (27 measurements)
+  XMV 1 through XMV 11 (11 manipulated variables)
+  Total = 38 channels
+
+The 52-variable alarm-time evaluation is a different setup. The file-specific
+channel list and hashes are stored in that experiment output/artifact.
+
+3.2 Window summary features
+
+For one channel x in a window of N observations x1 ... xN:
+
+Last value:
+  x_last = x_N
+
+Mean:
+  mean(x) = (1/N) * SUM(i=1..N, x_i)
+
+Sample standard deviation:
+  s = SQRT( SUM(i=1..N, (x_i - mean(x))^2) / (N - 1) )
+
+Linear trend slope:
+  slope = SUM((i - mean(i)) * (x_i - mean(x))) /
+          SUM((i - mean(i))^2)
+
+Interpretation:
+  last  = latest level
+  mean  = typical level in window
+  s     = short-term variability
+  slope = trend direction/rate
+
+For the multi-window candidate, each window has 38 x 4 = 152 features.
+There are four windows per run, ending at 200, 300, 400, 500 samples.
+
+3.3 XGBoost multi-class prediction
+
+Given features x and class labels k (normal plus fault classes), XGBoost
+returns scores/probabilities P(y=k | x). The raw class decision is:
+  predicted_class = argmax_k P(y=k | x)
+
+This is a supervised offline model. The reported gated result also applies
+validation-selected rules below. Check the saved JSON for exact model
+parameters, threshold values, classes, run counts, and data checksums.
+
+3.4 Fault threshold and abstention gate
+
+Binary fault score:
+  s_fault = 1 - P(normal)
+
+Fault/normal decision:
+  if s_fault >= threshold_fault: classify as a fault candidate
+  otherwise: classify as normal
+
+Fault threshold selection uses validation data and maximizes Youden's J:
+  J = TPR - FPR
+where TPR is true-positive rate and FPR is false-positive rate.
+
+Fault-class confidence gate:
+  if maximum fault-class confidence is below threshold_confidence:
+      output unknown/abstain
+  else:
+      output highest-scoring fault class
+
+The summary of this experiment records the selected thresholds as fault
+threshold 0.935 and confidence threshold 0.27. Confirm the exact JSON fields
+before quoting these in the final academic report. Gates are calibrated on
+validation and fixed before held-out testing. Unknown is not a correct fault
+class prediction for multi-class diagnosis accuracy.
+
+3.5 Autoencoder anomaly score
+
+For standardized sensor row z and reconstruction z_hat:
+  e_t = SUM over channels j of (z_tj - z_hat_tj)^2
+
+Large e_t means the autoencoder reconstructs the observed pattern poorly
+relative to its learned normal behavior. The alarm-time pipeline uses a
+normal-calibrated threshold and two consecutive exceedances. Alarm onset and
+false alarm rate depend on threshold and persistence configuration.
+
+3.6 Evaluation metrics
+
+TP = faulty runs correctly flagged as faulty
+FN = faulty runs not flagged as faulty
+FP = normal runs incorrectly flagged as faulty
+TN = normal runs correctly left unflagged
+
+Accuracy = (number of correctly predicted classes) / (all evaluated runs)
+Precision = TP / (TP + FP)
+Recall / sensitivity = TP / (TP + FN)
+F1 = 2 * precision * recall / (precision + recall)
+Macro-F1 = arithmetic average of F1 calculated separately for each class
+Normal false-alarm rate (FAR) = FP / (FP + TN)
+Detection delay = first qualifying alarm sample - assumed fault onset sample
+
+Numerical examples from the recorded experiments:
+  91.2% final-window accuracy = 954 / 1,046 = 0.9120 = 91.20%.
+  85.5% final-window binary fault recall = 467 / (467 + 79) = 85.53%.
+  1.0% normal FAR = 5 / (5 + 495) = 1.00%.
+  85.9% alarm-time detection = 470 / 547 = 85.92%.
+  9.6% alarm-time normal FAR = 48 / 500 = 9.60%.
+  35.1% correct diagnoses among detected = 165 / 470 = 35.11%.
+  30.2% end-to-end correct diagnosis = 165 / 547 = 30.16%.
+
+Macro-F1 is not the same calculation as accuracy. It gives each class equal
+weight through class-wise precision/recall/F1, whereas accuracy counts all
+examples together. A class can have low recall even when total accuracy is
+high.
+
+3.7 Explanations, knowledge graph, and RAG
+
+TreeSHAP assigns feature contribution values relative to the classifier's
+prediction. These values explain model behavior, not physical causality.
+Heuristic sensor attribution ranks candidate channels using rules/evidence.
+The graph adds unit/fault/variable relationships. RAG retrieves matching
+reference text from its small corpus. All are advisory context; they need
+source and domain review before being treated as plant facts or instructions.
+
+3.8 Methods implemented or compared in the repository
+
+  Hand-coded physics/signature predictor:
+    Application baseline for its listed supported fault signatures. Its
+    relative scores are not calibrated probabilities, and no time-to-failure
+    (TTF) estimate is available.
+
+  XGBoost supervised diagnosis:
+    Trained from labeled data; the standard offline XGBoost experiment uses
+    temporal statistics on 38 aligned channels. TreeSHAP can describe feature
+    contributions for a prediction.
+
+  Multi-window XGBoost diagnosis:
+    Candidate research experiment with four windows per run. It is the source
+    of the 91.2% final-window result, but it does not automatically replace
+    the live serving predictor.
+
+  MLP autoencoder:
+    Learns normal-only patterns; reconstruction error is used for anomaly
+    scoring. The 52-variable alarm-time pipeline uses sequential threshold
+    evaluation and then XGBoost diagnosis at first alarm.
+
+  PCA monitoring:
+    Fit on normal data; monitors Hotelling T-squared and squared prediction
+    error (SPE/Q); thresholds are calibrated from normal data. It is an
+    additional anomaly-monitoring method, not the source of the 91.2%
+    supervised diagnosis score.
+
+  Fusion/calibration experiments:
+    The repository includes run-level calibration and repeated evaluation of
+    PCA, autoencoder, and max-score fusion variants. These are different
+    detection experiments; cite each result's own JSON rather than reusing
+    the multi-window classifier accuracy.
+
+
+======================================================================
+4. ACCURACY RESULTS - WHAT CAN BE CLAIMED
+======================================================================
+
+4.1 Offline final-window diagnosis
+
+Multi-window candidate, held-out test:
+  Accuracy:             91.2046% (954 / 1,046)
+  Macro-F1:             84.378%
+  Binary fault recall:  85.531% (467 TP, 79 FN)
+  Normal FAR:            1.000% (5 FP, 495 TN)
+  Test set:             1,046 complete runs
+  Task:                 gated final-window/end-of-run classification
+
+Same-split single-window baseline retrained on same training subset:
+  Accuracy:             89.9618%
+  Macro-F1:             82.263%
+  Fault recall:         84.43%
+  Normal FAR:            1.2%
+
+Candidate absolute difference versus this baseline:
+  Accuracy: about +1.24 percentage points
+  Macro-F1: about +2.12 percentage points
+
+Other repository metrics refer to other experiments and must not be mixed
+into this table: README.md records an earlier heuristic baseline at 48.8%
+accuracy / 5.7% macro-F1, a prior saved XGBoost evaluation at 89.4% / 81.4%,
+and an MLP candidate at 86.1% / 78.1%. Those values use their own saved
+configurations and should be cited with their exact experiment artifacts.
+The currently active predictor described in README.md is the hand-coded
+baseline for its supported fault IDs; the multi-window experiment is offline.
+
+Hard test classes:
+  IDV3:  1/28 correctly diagnosed = 3.6% recall
+  IDV9:  0/27 correctly diagnosed = 0.0% recall
+  IDV15: 0/27 correctly diagnosed = 0.0% recall
+
+There is one unknown prediction in the recorded gated result. Fault 21 is
+absent from the held-out test set. Include the complete class list, supports,
+confusion matrix, and exact unknown handling when presenting the score.
+
+4.2 Alarm-time pipeline (separate task)
+
+Autoencoder detection on tested runs:
+  Fault-run detection: 470/547 = 85.9%
+  Normal runs false alarmed: 48/500 = 9.6%
+  Mean delay: 64.38 samples (relative to assumed onset sample 161)
+
+Diagnosis after alarm:
+  Correct diagnosis among detected: 165/470 = 35.1%
+  End-to-end correct diagnosis over evaluated fault runs: 165/547 = 30.2%
+
+This is the pipeline metric if the question is: “How often did the process
+detect the event and give the correct diagnosis at alarm time?” It is not 80%.
+
+4.3 Related-paper comparison
+
+One recent 21-class TEP paper (LSTM-GatedTAG) reports:
+  Accuracy 88.21% +/- 0.12 percentage points
+  Macro-F1 88.94% +/- 0.15 percentage points
+
+Project multi-window candidate:
+  Accuracy 91.20%
+  Macro-F1 84.38%
+
+Descriptive arithmetic only:
+  Project accuracy is about 3.0 points higher.
+  Project macro-F1 is about 4.6 points lower.
+
+Not a head-to-head result: the dataset version, run split, channels, decision
+timing, calibration, and exact evaluation may differ. Do not claim superiority
+without reproducing both approaches on the same data and split. The paper
+source is:
+https://www.sciencedirect.com/science/article/pii/S0950423026003049
+
+Recommended accurate wording:
+“The validation-calibrated multi-window classifier achieved 91.2% run-level
+accuracy and 84.4% macro-F1 on the supplied held-out TEP test set for
+final-window diagnosis. The separately evaluated alarm-time pipeline reached
+30.2% end-to-end correct diagnosis across evaluated fault runs. These results
+apply to the recorded benchmark protocol and do not validate a physical plant.”
+
+Do not say: “The complete project is 91.2% accurate.”
+
+
+======================================================================
+5. PROJECT FILE GUIDE - RELEVANT FILES AND THEIR PURPOSE
+======================================================================
+
+5.1 Main documentation
+
+README.md
+  Main setup instructions, system scope, model status, metrics, reproduction
+  commands, limitations, and integrations.
+
+DEMO_GUIDE.md
+  Step-by-step application demonstration, simulator/replay differences,
+  anomaly-to-diagnosis workflow, roles, and demonstration cautions.
+
+FLOW_IMPLEMENTATION.md
+  Operator/Engineer/Technician lifecycle and n8n webhook configuration.
+
+GRAPH_RAG_RESEARCH_NOTES.md
+  Knowledge graph and RAG scope, data source notes, and what remains to
+  validate for sources/mappings.
+
+5.2 Application / dashboard files
+
+src/App.tsx
+  Main front-end application composition and view routing.
+
+src/main.tsx, src/index.css
+  Front-end entry point and global style.
+
+src/components/TelemetryReplayView.tsx
+  Benchmark telemetry replay view.
+
+src/components/HealthAnomalyView.tsx
+  Health and anomaly display.
+
+src/components/CrewAIBoard.tsx
+  Agent workflow board.
+
+src/components/KnowledgeGraphView.tsx
+  Knowledge graph view.
+
+src/components/RAGKnowledgeView.tsx
+  RAG/reference search view.
+
+src/components/PredictionShapView.tsx
+  Prediction explanation / SHAP contribution view.
+
+src/components/AlarmCenter.tsx
+  Alarm review interface.
+
+src/components/MaintenanceStation.tsx
+  Maintenance and work-order interface.
+
+src/components/N8nAutomationView.tsx
+  n8n integration view.
+
+src/components/FaultInjectionPanel.tsx
+  Simulator fault injection controls.
+
+src/services/telemetryCsv.ts
+  Browser-side CSV parsing/mapping for replay.
+
+src/services/api.ts
+  Front-end API calls to the server.
+
+5.3 TypeScript server / application workflow
+
+server.ts
+  Server entry point and application startup.
+
+server/routes.ts
+  API route definitions.
+
+server/tep/tepSimulator.ts
+  Built-in simplified synthetic telemetry generator.
+
+server/tep/tepConstants.ts
+  Process/simulator constants.
+
+server/tep/tepDataProfile.ts
+  Telemetry channel/data-profile definitions and mapping context.
+
+server/tep/alarmMonitor.ts
+  Alarm monitoring and configured threshold behavior.
+
+server/tep/unitAgents.ts
+  Unit-level specialist workflow and topology handoffs.
+
+server/agents/crewaiOrchestrator.ts
+  Agent orchestration entry point in the TypeScript application.
+
+server/ml/autoencoder.ts
+  Application-side autoencoder inference/anomaly handling.
+
+server/ml/tepFaultClassifier.ts
+  Application-side fault classifier logic/artifact use.
+
+server/ml/xgboostService.ts
+  XGBoost inference service integration.
+
+server/ml/shapEngine.ts
+  Prediction contribution/explanation support.
+
+server/ml/evaluateTepCsv.ts
+  CSV evaluation utilities.
+
+server/kg/neo4jGraph.ts
+  Knowledge graph database integration and graph queries.
+
+server/rag/ragCorpus.ts
+  RAG corpus and retrieval support.
+
+server/rag/ragEvaluationCases.ts
+  RAG evaluation examples/cases.
+
+server/n8n/n8nService.ts
+  Webhook event dispatch and simulated dispatch behavior.
+
+server/state/stateStore.ts
+  Application state persistence.
+
+server/auth/authService.ts
+  Demonstration authentication and role support.
+
+5.4 Python analysis / ML files
+
+crew_service/multiwindow_diagnosis_experiment.py
+  Offline 38-channel, four-window XGBoost diagnosis experiment; produces the
+  saved multi-window result JSON.
+
+crew_service/train_xgboost_classifier.py
+  Trains the standard XGBoost classifier used for benchmark replay/model
+  artifact generation.
+
+crew_service/xgboost_inference.py
+  XGBoost inference support.
+
+crew_service/train_autoencoder.py
+  Trains normal-operation autoencoder artifacts.
+
+crew_service/anomaly_inference.py
+  Autoencoder anomaly inference.
+
+crew_service/alarm_time_pipeline_experiment.py
+  Offline sequential detector -> first alarm -> XGBoost diagnosis pipeline
+  experiment; includes TreeSHAP contribution handling.
+
+crew_service/train_pca_detector.py
+  Trains PCA-based detector for comparison.
+
+crew_service/train_fault_classifier.py
+  Trains classifier candidate from split training files.
+
+crew_service/run_level_calibration_experiment.py
+  Run-level normal/fault calibration experiment.
+
+crew_service/run_repeated_calibration_experiment.py
+  Repeated run-level calibration/evaluation.
+
+crew_service/crew.py
+  Optional remote CrewAI task definitions/orchestration logic.
+
+crew_service/main.py
+  Python service API entry point.
+
+crew_service/models.py and crew_service/tools.py
+  Request/response models and analysis tools for the Python agent service.
+
+crew_service/requirements.txt
+  Python service and ML dependency declarations.
+
+crew_service/tests/
+  Python unit tests. These test software behavior; they are not proof of
+  physical-plant safety or scientific generalization.
+
+5.5 Important model artifacts
+
+server/ml/artifacts/xgboost/tep_xgboost_classifier.json
+  Serialized active XGBoost model artifact (when generated/present).
+
+server/ml/artifacts/xgboost/tep_xgboost_metadata.json
+  Model training/evaluation metadata.
+
+server/ml/artifacts/xgboost_52/
+  Default output directory for the 52-variable XGBoost trainer; confirm
+  generated model files exist before claiming that model is deployable.
+
+server/ml/artifacts/tep_autoencoder.json
+  Autoencoder artifact for the 38-channel application configuration.
+
+server/ml/artifacts/tep_autoencoder_52.json
+  52-variable autoencoder artifact path referenced by Python inference and
+  used as default output by crew_service/train_autoencoder.py. It is NOT
+  present in the current artifact folder listing; train or verify this artifact
+  before assuming that 52-variable inference is ready.
+
+server/ml/artifacts/tep_pca_detector.json
+  PCA detector artifact.
+
+server/ml/artifacts/tep_fault_classifier.json
+  Fault-classifier artifact for app-supported classes.
+
+server/ml/artifacts/tep_run_calibration.json
+  Run-level calibration sidecar (if present and matching data hash/config).
+
+Important distinction: artifacts in server/ml/artifacts are serving/evaluation
+artifacts; the multi-window research candidate's saved metrics do not by
+themselves prove that this candidate has replaced the application's active
+serving model.
+
+5.6 Dataset files in project root
+
+TEP_FaultFree_Training.csv
+faulty_training.csv
+faulty_testing.csv
+fault_free_testing.csv
+
+These are large local CSV files used for benchmark work. Their exact source,
+release, checksum-to-original, and license still need confirmation before
+external redistribution or strong provenance claims. Do not upload or publish
+the dataset unless its license permits it.
+
+5.7 Experiment outputs
+
+outputs/multiwindow_diagnosis/validation_results.json
+  Full multi-window candidate configuration, split/hash evidence, validation
+  results, gated test metrics, and per-class details. Use this JSON as the
+  authoritative source for exact model numbers.
+
+outputs/alarm_time_pipeline_52_seed_20261020/pipeline_results.json
+  Sequential 52-variable alarm-time pipeline results, detector and diagnosis
+  metrics, configuration, and evaluation details.
+
+outputs/repeated_run_level_calibration_52_seed_20261020/repeated_results.json
+  Repeated run-level calibration evaluation and per-fault detection summaries.
+
+outputs/run_level_calibration/
+  Additional run-level calibration artifacts/results.
+
+outputs/review2-2026-10-13/
+  Prior review deck/build assets; check for stale model metrics before reusing.
+
+outputs/review2-final-2026-10-28/
+  Draft/build assets from prior work; inspect actual contents before claiming a
+  final deck was exported. The report here does not imply that deck is updated.
+
+5.8 Tests and setup
+
+package.json
+  Front-end/server scripts and dependency commands.
+
+tsconfig.json and vite.config.ts
+  TypeScript and development/build configuration.
+
+crew_service/tests/test_autoencoder_training.py
+crew_service/tests/test_fault_classifier_training.py
+crew_service/tests/test_models.py
+  Python test coverage for selected model/training/service behaviors.
+
+server/ml/*.test.ts, server/tep/*.test.ts, src/services/*.test.ts
+  TypeScript test files for selected service, simulator, and ML logic.
+
+Never publish secrets from .env. .env contains local credentials/configuration
+and should not be included in a submitted zip/report.
+
+
+======================================================================
+6. REPRODUCTION AND FINAL REVIEW CHECKLIST
+======================================================================
+
+6.1 Reproduce the multi-window diagnosis result
+
+From the repository root, install the project's declared Python dependencies
+in the intended environment, then run:
+
+  python -m crew_service.multiwindow_diagnosis_experiment
+
+Confirm the output path:
+  outputs/multiwindow_diagnosis/validation_results.json
+
+Check all of the following against that JSON:
+  [ ] dataset file hashes and experiment parameters
+  [ ] train/validation/test are separated by complete run
+  [ ] four windows and their sample endpoints
+  [ ] classes present in train/validation/test
+  [ ] validation-only thresholds and confidence gate
+  [ ] accuracy numerator and denominator
+  [ ] macro-F1 and class supports
+  [ ] binary TP/FN and normal FP/TN
+  [ ] unknown predictions and their metric handling
+  [ ] per-fault confusion matrix, especially IDV3/9/15
+
+Do not tune thresholds or model settings based on the final test and then
+continue presenting that same test as untouched validation. If test feedback
+drives changes, use a new independent test set for an unbiased final score.
+
+6.2 Validate the alarm-time pipeline
+
+Check outputs/alarm_time_pipeline_52_seed_20261020/pipeline_results.json for:
+  [ ] the exact 52-variable channel list and data hashes
+  [ ] onset assumption and sample numbering
+  [ ] normal calibration threshold and two-consecutive-sample rule
+  [ ] number of normal/fault runs and false alarms
+  [ ] first-alarm delay definition and mean/median delay
+  [ ] diagnosis among detected runs
+  [ ] end-to-end correct diagnoses across all fault runs
+  [ ] per-fault detection and diagnosis
+
+6.3 Confirm dataset provenance
+
+Compare source/version documentation, field names, and file hashes against
+the dataset deposit you actually used. Verify the license conditions for the
+local CSVs and for redistribution. If uncertain, write “dataset files supplied
+for this experiment; provenance/license not independently confirmed” and do
+not claim a verified source.
+
+6.4 Validate the application demonstration
+
+  [ ] Clearly identify synthetic simulator telemetry vs CSV replay.
+  [ ] Show alarm and evidence flow with its source label.
+  [ ] Demonstrate Operator acknowledgement.
+  [ ] Demonstrate Engineer approval/rejection.
+  [ ] Demonstrate Technician repair record and Engineer closure.
+  [ ] Confirm work order cannot be dispatched before Engineer approval.
+  [ ] Confirm n8n is simulated when no webhook exists.
+  [ ] If webhook configured, verify n8n Executions and actual recipient.
+  [ ] Do not show secrets from .env or API keys in screenshots.
+
+6.5 Final academic report checks
+
+  [ ] Replace all bracketed student/guide/institution placeholders.
+  [ ] Apply department report template, font, margins, front matter, citation
+      system, page numbering, and declaration wording.
+  [ ] Update table of contents and list of tables/figures after pagination.
+  [ ] Add legible architecture, workflow, and confusion-matrix figures if
+      required by the department.
+  [ ] Include per-class results, not accuracy alone.
+  [ ] Cite papers and dataset sources fully; verify bibliographic metadata.
+  [ ] Explain that 91.2% is final-window accuracy and 30.2% is end-to-end
+      alarm-time correct diagnosis.
+  [ ] Disclose poor results for Faults 3, 9, and 15.
+  [ ] State the prototype is not validated for a live plant or safety use.
+  [ ] Run the department's originality and final submission checks.
+
+
+======================================================================
+7. FINAL REVIEW TALK TRACK
+======================================================================
+
+“Our project is a TEP-based decision-support prototype. The dashboard uses a
+simplified synthetic simulator; offline benchmark CSVs are evaluated
+separately. The default analysis sequence combines anomaly scoring, fault
+prediction, sensor attribution, graph context, and reference retrieval. A
+human approves work orders before Technician dispatch, and n8n is optional.
+
+“For offline final-window diagnosis, our validation-calibrated multi-window
+XGBoost candidate achieved 91.2% accuracy and 84.4% macro-F1 on 1,046 held-out
+runs. The model uses 38 aligned channels and four temporal windows. This does
+not represent end-to-end alarm-time accuracy. A separate alarm-time pipeline
+detected 85.9% of fault runs but correctly diagnosed 30.2% end to end. Faults
+3, 9, and 15 remain difficult. The system is a research prototype, not a
+validated plant-control or safety system.”
+
+
+======================================================================
+8. REFERENCES AND PROJECT DOCUMENTS
+======================================================================
+
+Project documentation:
+  README.md
+  DEMO_GUIDE.md
+  FLOW_IMPLEMENTATION.md
+  GRAPH_RAG_RESEARCH_NOTES.md
+
+Research references:
+  Downs, J. J., and Vogel, E. F. (1993). A plant-wide industrial process
+  control problem. Computers & Chemical Engineering, 17(3), 245-255.
+  DOI: 10.1016/0098-1354(93)80018-I
+
+  Rieth, A., Amsel, B. A., Tran, R., and Cook, M. (2017). Tennessee Eastman
+  Process Simulation Data for Anomaly Detection. Harvard Dataverse.
+  DOI: 10.7910/DVN/6C3JR1. Confirm local file match before claiming provenance.
+
+  Chen, T., and Guestrin, C. (2016). XGBoost: A Scalable Tree Boosting System.
+  Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge
+  Discovery and Data Mining, 785-794. DOI: 10.1145/2939672.2939785
+
+  Lundberg, S. M., and Lee, S.-I. (2017). A Unified Approach to Interpreting
+  Model Predictions. Advances in Neural Information Processing Systems 30.
+
+  Text-attributed dynamic graph learning for structure-aware fault diagnosis
+  in chemical processes. ScienceDirect (2026). LSTM-GatedTAG reported 21-class
+  TEP accuracy 88.21% and macro-F1 88.94%. Verify final citation metadata:
+  https://www.sciencedirect.com/science/article/pii/S0950423026003049
+
+======================================================================
+END OF GUIDE
+======================================================================

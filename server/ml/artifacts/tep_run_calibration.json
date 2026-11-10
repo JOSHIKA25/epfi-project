@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "method": "run_level_persistence_multiplier",
+  "thresholdMultiplier": 1.1217664099671198,
+  "baseThreshold": 24.349685134262113,
+  "datasetSha256": "c56be501d66f7ae7cb66a9e3562715e8ccf4a05bdcabc7fe47220419721f62fa",
+  "seed": 42,
+  "calibrationRuns": 75,
+  "targetRunFalseAlarmRate": 0.05,
+  "heldOutRunFalseAlarmRate": 0.052,
+  "heldOutFaultDetectionRate": 0.8650831809872029,
+  "note": "Single-split TEP benchmark result from outputs/run_level_calibration/results.json. Opt-in only; not validated on the live simulator or a physical plant."
+}

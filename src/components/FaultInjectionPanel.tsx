@@ -9,11 +9,13 @@ import {
   Info,
   ShieldAlert,
 } from 'lucide-react';
-import { TEPFault } from '../types/index.js';
+import { TEPFault, TEPVariable, TelemetryPoint } from '../types/index.js';
 
 interface FaultInjectionPanelProps {
   faults: TEPFault[];
   activeFaults: TEPFault[];
+  variables: TEPVariable[];
+  telemetry: TelemetryPoint | null;
   onInjectFault: (faultId: number, intensity: number) => void;
   onClearFault: (faultId?: number) => void;
 }
@@ -21,6 +23,8 @@ interface FaultInjectionPanelProps {
 export const FaultInjectionPanel: React.FC<FaultInjectionPanelProps> = ({
   faults,
   activeFaults,
+  variables,
+  telemetry,
   onInjectFault,
   onClearFault,
 }) => {
@@ -56,10 +60,10 @@ export const FaultInjectionPanel: React.FC<FaultInjectionPanelProps> = ({
         <div>
           <h2 className="text-base font-bold text-white flex items-center gap-2">
             <AlertOctagon className="w-5 h-5 text-rose-400" />
-            Tennessee Eastman Process - 21 Benchmark Faults Lab (Downs & Vogel)
+            Fault Lab
           </h2>
           <p className="text-xs text-slate-400 font-sans mt-0.5">
-            Inject standardized process disturbances, step changes, actuator stiction, and catalyst deactivation to evaluate real-time AI detection and predictive maintenance.
+            Inject a fault and watch the affected sensor readings and alarms.
           </p>
         </div>
 
@@ -172,17 +176,50 @@ export const FaultInjectionPanel: React.FC<FaultInjectionPanelProps> = ({
                 </div>
 
                 {/* Key Sensors */}
-                <div className="flex flex-wrap items-center gap-1 mb-3">
-                  <span className="text-[10px] text-slate-500 font-mono">Sensors:</span>
-                  {f.keySensors.map((sCode) => (
-                    <span
-                      key={sCode}
-                      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 text-slate-400 border border-slate-800"
-                    >
-                      {sCode}
-                    </span>
-                  ))}
-                </div>
+                {isActive && telemetry ? (
+                  <div className="mb-3 rounded-lg border border-cyan-900/70 bg-slate-950/80 p-2">
+                    <div className="mb-1 text-[10px] font-mono uppercase text-cyan-300">
+                      Fault-catalog sensors · live simulator readings
+                    </div>
+                    <div className="space-y-1">
+                      {f.keySensors.map((sensorId) => {
+                        const variable = variables.find((item) => item.id === sensorId);
+                        const value = telemetry.values[sensorId];
+                        const alarm = telemetry.alarms[sensorId] ?? 'NORMAL';
+                        const delta = variable && Number.isFinite(value)
+                          ? value - variable.nominal
+                          : null;
+                        const percent = delta !== null && variable && Math.abs(variable.nominal) > 1e-9
+                          ? (delta / Math.abs(variable.nominal)) * 100
+                          : null;
+                        const alarmed = alarm !== 'NORMAL';
+                        return (
+                          <div key={sensorId} className="flex flex-wrap items-center justify-between gap-x-2 text-[10px] font-mono">
+                            <span className="text-slate-300">{sensorId}</span>
+                            <span className="text-slate-400">
+                              {Number.isFinite(value) ? `${value.toFixed(2)} ${variable?.unit ?? ''}` : 'no reading'}
+                              {delta !== null && ` · ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} vs nominal`}
+                              {percent !== null && ` (${percent >= 0 ? '+' : ''}${percent.toFixed(1)}%)`}
+                            </span>
+                            <span className={alarmed ? 'font-bold text-amber-300' : 'text-emerald-400'}>{alarm}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1.5 border-t border-slate-800 pt-1.5 text-[10px] text-slate-500">
+                      These are sensors associated with this injected fault, not guaranteed model rankings. NORMAL means the reading has not crossed its alarm threshold; it may still have shifted from nominal.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-1 mb-3">
+                    <span className="text-[10px] text-slate-500 font-mono">Catalog sensors:</span>
+                    {f.keySensors.map((sCode) => (
+                      <span key={sCode} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 text-slate-400 border border-slate-800">
+                        {sCode}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Action Button */}
